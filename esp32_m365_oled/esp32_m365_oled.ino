@@ -8,13 +8,14 @@ references used:
 /*next steps:
 - fix missing crlf in serial debug
 - add 36524 for raw data dump
-- verify structs/data
+- verify ESC structs/data/display
 	-> decoder finished, start with requestor
 
 //FIX: WIFI OFF Prints all the time.... :(
 
 /*TODO: 
     rename telnet stuff to clientservices or similar and add http
+    OLED screen with current WATT
 */
 
 #ifdef ESP32
@@ -574,7 +575,7 @@ void telnet_refreshscreen() {
                 serverClients[i].printf(" Production Date: %d-%d-%d ",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
                 serverClients[i].printf(" Charging Cycles: %d Charging Times: %d\r\n",bmsparsed->cycles,bmsparsed->chargingtimes);
                 serverClients[i].printf(" Voltage: %2.2f V Current %05d mA\r\n",(float)bmsparsed->voltage/100.0f, bmsparsed->current);
-                serverClients[i].printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage);
+                serverClients[i].printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage/100.0f);
                 sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
                 serverClients[i].printf("\r\n\r\nESC Serial: %s Version: %05d", tmp1,escparsed->fwversion);
                 sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
@@ -587,26 +588,7 @@ void telnet_refreshscreen() {
                 serverClients[i].printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
                 serverClients[i].printf("\r\nX1 Mode %03d LEDs %03d Light %03d BeepAction %03d\r\n",x1parsed->mode, x1parsed->battleds, x1parsed->light, x1parsed->beepaction);
 
-/*
-                serverClients[i].printf("\r\n\r\n\r\n\r\nHEX VERSION\r\n\r\nBLE\r\n Throttle: %0x Brake %0x\r\n",bleparsed->throttle,bleparsed->brake);
-                //sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
-                sprintf(tmp1,"%s","dummy");
-                serverClients[i].printf("\r\n\r\nBMS Serial: %s Version: %0x\r\n", tmp1,bmsparsed->fwversion);
-                serverClients[i].printf(" Capacity Total: %0x Remaining %0x Percent %0x Temperature %0x Health %0x\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent, bmsparsed->temperature, bmsparsed->health);
-                serverClients[i].printf(" Voltage: %0x Current %0x\r\n",bmsparsed->voltage, bmsparsed->current);
-                serverClients[i].printf(" C1: %0x C2: %0x C3: %0x C4: %0x C5: %0x C6: %0x C7: %0x C8: %0x C9: %0x C10: %0x\r\n",bmsparsed->Cell1Voltage,bmsparsed->Cell2Voltage,bmsparsed->Cell3Voltage,bmsparsed->Cell4Voltage,bmsparsed->Cell5Voltage,bmsparsed->Cell6Voltage,bmsparsed->Cell7Voltage,bmsparsed->Cell8Voltage,bmsparsed->Cell9Voltage,bmsparsed->Cell10Voltage);
-                //sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
-                serverClients[i].printf("\r\n\r\nESC Serial: %s Version: %0x", tmp1,escparsed->fwversion);
-                //sprintf(tmp1,"%s%s%s%s%s%s",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
-                serverClients[i].printf(" Pin: %s Error %0x\r\n",tmp1,escparsed->error);
-                serverClients[i].printf(" Distance Total: %0x Trip: %0x Remaining %0x", escparsed->totaldistance,escparsed->tripdistance,escparsed->remainingdistance);
-                serverClients[i].printf(" Trip Time: %0x\r\n",escparsed->triptime);
-                serverClients[i].printf(" FrameTemp1: %0x FrameTemp2: %0x\r\n", escparsed->frametemp1, escparsed->frametemp2);
-                serverClients[i].printf(" Speed: %0x Avg: %0x\r\n", escparsed->speed, escparsed->averagespeed);
-                serverClients[i].printf(" Batt Percent: %0x\r\n",escparsed->battpercent);
-                serverClients[i].printf(" Ecomode: %05d Kers: %05d Cruisemode: %0x Taillight: %0x\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
-                serverClients[i].printf("\r\nX1 Mode %0x LEDs %0x Light %0x BeepAction %0x\r\n",x1parsed->mode, x1parsed->battleds, x1parsed->light, x1parsed->beepaction);
- */
+
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;
             break;

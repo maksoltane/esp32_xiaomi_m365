@@ -7,9 +7,10 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - Telnet on Port 36523 with different Screens
 - Telnet on Port 36524 with raw byte dump from M365 Bus
 - M365 Serial Receiver and Packet decoder into Array per Address
+- Decoder of BMS Data Array to Variable Values/Telemetrie Screen
 
 # Todos
- - finish packet decoder (the structs are not validated/WRONG as of now)
+ - finish packet decoder (the ESC Struct is not tested/verified)
  - beautify telemetrie screen (e.g. show "lights on/off" instead of 0x00/0x64)
  - add newdata-bitarray for each address to indicate updated data
  - add packet requestor for periodically requesting array-block we are interested in
