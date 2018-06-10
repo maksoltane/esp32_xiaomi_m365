@@ -21,12 +21,14 @@ It might be a idea to use e.g. 680R or 1k in series to protect the gpio, as well
 # Todos
  - finish packet decoder
  - add packet requestor for periodically requesting array-block we are interested in
+ - Test if 3.3Vfrom TX Pin are enough or a simple Level Shifter is needed
  - Test on ESP8266
  - add OLED for scooter-mounting
  - dual OLED Screen mode
  - use esp32 dual core features for serial/oled handling on different cores
  - add cheap menu using brake/throttle for navigation
  - add advanced menu using esp32 touch features for navigation
+ - custom PCB with 2 OLEDs, ESP32S, VReg and touch areas
 
 # Telnet Interface
  - Telemetrie Screen shows decoded known values: Batt Voltage, Current, Speed,... 
