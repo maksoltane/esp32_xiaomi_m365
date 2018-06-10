@@ -28,6 +28,7 @@ references used:
   #error Platform not supported
 #endif
 
+#include <endian.h>
 #include <ArduinoOTA.h>
 
 /* Modifications to ADAFRUIT SSD1306 Library 1.02for ESP32:
@@ -217,21 +218,21 @@ references used:
     uint8_t u1[1];
     uint8_t throttle;
     uint8_t brake;
-    uint8_t u2[509];
-  } blestruct;
+    //uint8_t u2[509];
+  }__attribute__((packed))   blestruct;
 
   typedef struct {
     uint8_t mode; //offset 0x00 mode: 0-stall, 1-drive, 2-eco stall, 3-eco drive
     uint8_t battleds;  //offset 0x01 battery status 0 - min, 7(or 8...) - max
     uint8_t light;  //offset 0x02 0= off, 0x64 = on
     uint8_t beepaction;  //offset 0x03 "beepaction" ?
-    uint8_t u1[508];
-  } x1struct;
+    //uint8_t u1[508];
+  }__attribute__((packed))   x1struct;
 
   typedef struct {
-    uint16_t u1[10]; //offset 0-0x1F
-    unsigned char serial[14]; //offset 0x20-0x2D
-    unsigned char pin[6]; //offset 0x2E-0x33
+    uint16_t u1[0x10]; //offset 0-0x1F
+    char serial[14]; //offset 0x20-0x2D
+    char pin[6]; //offset 0x2E-0x33
     uint16_t fwversion; //offset 0x34-035,  e.g. 0x133 = 1.3.3
     uint16_t u2[10]; //offset 0x36-0x49
     uint16_t remainingdistance; //offset 0x4a-0x4B e.g. 123 = 1.23km
@@ -256,14 +257,17 @@ references used:
     uint16_t u9[1]; //offset 0x174-0x175 
     uint16_t frametemp2; //0x176-0x177 /10 = temp in °C
     uint16_t u10[68]; //offset 0x178-0x200 
-  } escstruct;
+  }__attribute__((packed))   escstruct;
 
   typedef struct {
-    uint16_t u1[10]; //offset 0-0x1F
-    unsigned char serial[14]; //offset 0x20-0x2D
-    uint16_t fwversion; //offset 0x2E-0x2f e.g. 0x133 = 1.3.3
+    uint16_t u1[0x10]; //offset 0-0x1F
+    char serial[14]; //offset 0x20-0x2D
+    uint8_t fwversion[2]; //offset 0x2E-0x2f e.g. 0x133 = 1.3.3
     uint16_t totalcapacity; //offset 0x30-0x31 mAh
-    uint16_t u2[7]; //offset 0x32-0x3f
+    uint16_t u2a[2]; //offset 0x32-0x35
+    uint16_t cycles; //offset 0x36-0x37
+    uint16_t chargingtimes; //offset 0x38-0x39
+    uint16_t u2b[3]; //offset 0x3a-0x3f
     uint16_t proddate; //offset 0x40-0x41
         //fecha a la batt 7 MSB->año, siguientes 4bits->mes, 5 LSB ->dia ex:
       //b 0001_010=10, año 2010
@@ -275,8 +279,8 @@ references used:
     uint16_t remainingpercent; //offset 0x64-0x65
     int16_t current; //offset 0x66-67 - negative = charging; /100 = Ampere
     uint16_t voltage; //offset 0x68-69 /10 = Volt
-    uint16_t temperature; //offset 0x6A-0x6B -20 = °C
-    uint16_t u4[4]; //offset 0x6C-0x75
+    uint8_t temperature[2]; //offset 0x6A-0x6B -20 = °C
+    uint16_t u4[5]; //offset 0x6C-0x75
     uint16_t health; //offset 0x76-0x77; 0-100, 60 schwellwert "kaputt"
     uint16_t u5[4]; //offset 0x78-0x7F
     uint16_t Cell1Voltage; //offset 0x80-0x81
@@ -289,8 +293,8 @@ references used:
     uint16_t Cell8Voltage; //offset 0x8E-0x8F
     uint16_t Cell9Voltage; //offset 0x90-0x91
     uint16_t Cell10Voltage; //offset 0x92-0x93
-    uint16_t u6[182]; //offset 0x94-0x
-  } bmsstruct;
+    //uint16_t u6[182]; //offset 0x94-0x
+  }__attribute__((packed))  bmsstruct;
 
   uint8_t bledata[512];
   uint8_t x1data[512];
@@ -555,7 +559,7 @@ void telnet_refreshscreen() {
         }
         tmpi++;
         if (tmpi % 2) {
-          serverClients[i].println(" #\r\n");
+          serverClients[i].println(" .\r\n");
         } else {
           serverClients[i].println("  \r\n");
         }
@@ -563,22 +567,46 @@ void telnet_refreshscreen() {
           case ts_telemetrie:
               if (newdata) {
                 serverClients[i].printf("\r\nBLE\r\n Throttle: %03d Brake %03d\r\n",bleparsed->throttle,bleparsed->brake);
-                sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
-                serverClients[i].printf("\r\n\r\nBMS Serial: %s Version: %05d\r\n", tmp1,bmsparsed->fwversion);
-                serverClients[i].printf(" Capacity Total: %05d Remaining %05d Percent %05d Temperature %05d Health %05d\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent, bmsparsed->temperature, bmsparsed->health);
-                serverClients[i].printf(" Voltage: %05d Current %05d\r\n",bmsparsed->voltage, bmsparsed->current);
-                serverClients[i].printf(" C1: %05d C2: %05d C3: %05d C4: %05d C5: %05d C6: %05d C7: %05d C8: %05d C9: %05d C10: %05d\r\n",bmsparsed->Cell1Voltage,bmsparsed->Cell2Voltage,bmsparsed->Cell3Voltage,bmsparsed->Cell4Voltage,bmsparsed->Cell5Voltage,bmsparsed->Cell6Voltage,bmsparsed->Cell7Voltage,bmsparsed->Cell8Voltage,bmsparsed->Cell9Voltage,bmsparsed->Cell10Voltage);
-                sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
+                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
+                serverClients[i].printf("\r\n\r\nBMS Serial: %s Version: %x.%x.%x\r\n", tmp1,bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
+                serverClients[i].printf(" Capacity Total: %5d mAh Remaining %5d mAh Percent %03d%%\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent);
+                serverClients[i].printf(" Temperature1 %3d°C Temperature2 %3d°C Health %05d\r\n",bmsparsed->temperature[1]-20, bmsparsed->temperature[0]-20, bmsparsed->health);
+                serverClients[i].printf(" Production Date: %d-%d-%d ",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
+                serverClients[i].printf(" Charging Cycles: %d Charging Times: %d\r\n",bmsparsed->cycles,bmsparsed->chargingtimes);
+                serverClients[i].printf(" Voltage: %2.2f V Current %05d mA\r\n",(float)bmsparsed->voltage/100.0f, bmsparsed->current);
+                serverClients[i].printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage);
+                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
                 serverClients[i].printf("\r\n\r\nESC Serial: %s Version: %05d", tmp1,escparsed->fwversion);
-                sprintf(tmp1,"%s%s%s%s%s%s",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
+                sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
                 serverClients[i].printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
                 serverClients[i].printf(" Distance Total: %05d Trip: %05d Remaining %05d", escparsed->totaldistance,escparsed->tripdistance,escparsed->remainingdistance);
                 serverClients[i].printf(" Trip Time: %05d\r\n",escparsed->triptime);
                 serverClients[i].printf(" FrameTemp1: %05d FrameTemp2: %05d\r\n", escparsed->frametemp1, escparsed->frametemp2);
                 serverClients[i].printf(" Speed: %05d Avg: %05d\r\n", escparsed->speed, escparsed->averagespeed);
                 serverClients[i].printf(" Batt Percent: %05d\r\n",escparsed->battpercent);
-                serverClients[i].printf(" Êcomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
+                serverClients[i].printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
                 serverClients[i].printf("\r\nX1 Mode %03d LEDs %03d Light %03d BeepAction %03d\r\n",x1parsed->mode, x1parsed->battleds, x1parsed->light, x1parsed->beepaction);
+
+/*
+                serverClients[i].printf("\r\n\r\n\r\n\r\nHEX VERSION\r\n\r\nBLE\r\n Throttle: %0x Brake %0x\r\n",bleparsed->throttle,bleparsed->brake);
+                //sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
+                sprintf(tmp1,"%s","dummy");
+                serverClients[i].printf("\r\n\r\nBMS Serial: %s Version: %0x\r\n", tmp1,bmsparsed->fwversion);
+                serverClients[i].printf(" Capacity Total: %0x Remaining %0x Percent %0x Temperature %0x Health %0x\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent, bmsparsed->temperature, bmsparsed->health);
+                serverClients[i].printf(" Voltage: %0x Current %0x\r\n",bmsparsed->voltage, bmsparsed->current);
+                serverClients[i].printf(" C1: %0x C2: %0x C3: %0x C4: %0x C5: %0x C6: %0x C7: %0x C8: %0x C9: %0x C10: %0x\r\n",bmsparsed->Cell1Voltage,bmsparsed->Cell2Voltage,bmsparsed->Cell3Voltage,bmsparsed->Cell4Voltage,bmsparsed->Cell5Voltage,bmsparsed->Cell6Voltage,bmsparsed->Cell7Voltage,bmsparsed->Cell8Voltage,bmsparsed->Cell9Voltage,bmsparsed->Cell10Voltage);
+                //sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
+                serverClients[i].printf("\r\n\r\nESC Serial: %s Version: %0x", tmp1,escparsed->fwversion);
+                //sprintf(tmp1,"%s%s%s%s%s%s",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
+                serverClients[i].printf(" Pin: %s Error %0x\r\n",tmp1,escparsed->error);
+                serverClients[i].printf(" Distance Total: %0x Trip: %0x Remaining %0x", escparsed->totaldistance,escparsed->tripdistance,escparsed->remainingdistance);
+                serverClients[i].printf(" Trip Time: %0x\r\n",escparsed->triptime);
+                serverClients[i].printf(" FrameTemp1: %0x FrameTemp2: %0x\r\n", escparsed->frametemp1, escparsed->frametemp2);
+                serverClients[i].printf(" Speed: %0x Avg: %0x\r\n", escparsed->speed, escparsed->averagespeed);
+                serverClients[i].printf(" Batt Percent: %0x\r\n",escparsed->battpercent);
+                serverClients[i].printf(" Ecomode: %05d Kers: %05d Cruisemode: %0x Taillight: %0x\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
+                serverClients[i].printf("\r\nX1 Mode %0x LEDs %0x Light %0x BeepAction %0x\r\n",x1parsed->mode, x1parsed->battleds, x1parsed->light, x1parsed->beepaction);
+ */
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;
             break;
@@ -976,6 +1004,7 @@ void handle_wlan() {
 
 void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin,sclpin);
+  //display.setRotation(0); rotation 0-3 for 0, 90, 180, 270 degree cw
   display.clearDisplay();
   display.drawPixel(10, 10, WHITE); 
   display.display();
@@ -1011,7 +1040,7 @@ void setup() {
       client.publish(tmp1, "OTA Starting");
     }
 #endif
-    display.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin,sclpin);
+    //display.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin,sclpin);
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(WHITE);
