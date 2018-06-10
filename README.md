@@ -10,11 +10,12 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 
 # Todos
  - finish packet decoder
+ - beautify telemetrie screen (e.g. show "lights on/off" instead of 0x00/0x64)
+ - add newdata-bitarray for each address to indicate updated data
  - add packet requestor for periodically requesting array-block we are interested in
  - Test if 3.3Vfrom TX Pin are enough or a simple Level Shifter is needed
  - Test on ESP8266
- - add OLED for scooter-mounting
- - dual OLED Screen mode
+ - add OLED display code, single/dual OLED Screen mode, screenmodes, auto-refresh on new data via newdataarray
  - use esp32 dual core features for serial/oled handling on different cores
  - add cheap menu using brake/throttle for navigation
  - add advanced menu using esp32 touch features for navigation
@@ -32,7 +33,10 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
  - ESC/BLE/BMS/"X1" RAW Screens dumps the 512 Byte Array for each device (format "00 00 ...")
  - ESC/BLE/BMS/"X1" Array Screens dumps the 512 Byte Array for each device (in copy & paste format "const bledata[512]={0,0,0...};")
 
-use the letters s,t,e,b,n,x,E,B,N,X to switch between the screens
+use the letters
+ - s,t,e,b,n,x,E,B,N,X to switch between the screens
+ - r to reset statistics & m365 data arrays
+
 
 # Wiring
 M365 has a Serial One Wire Bus between BLE Module and ESC which consists of 4 wires, the connection as seen on the BLE Module:
