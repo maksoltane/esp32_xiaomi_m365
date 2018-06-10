@@ -9,7 +9,7 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - M365 Serial Receiver and Packet decoder into Array per Address
 
 # Todos
- - finish packet decoder
+ - finish packet decoder (the structs are not validated/WRONG as of now)
  - beautify telemetrie screen (e.g. show "lights on/off" instead of 0x00/0x64)
  - add newdata-bitarray for each address to indicate updated data
  - add packet requestor for periodically requesting array-block we are interested in
