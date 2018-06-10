@@ -1,5 +1,8 @@
-//russische definitionen: https://github.com/fogbox/m365_display/blob/master/extend_speedometer/defines.h & https://electro.club/forum/elektrosamokatyi_xiaomi/displey_dlya_syaokata&page=8
-//spanische definitionen: https://github.com/CamiAlfa/M365-BLE-PROTOCOL/blob/master/m365_register_map.h
+/*
+references used:
+  russion atmega328p/oled version: https://github.com/fogbox/m365_display/blob/master/extend_speedometer/defines.h & https://electro.club/forum/elektrosamokatyi_xiaomi/displey_dlya_syaokata&page=8
+  CamiAlfa BLE Protocoll: https://github.com/CamiAlfa/M365-BLE-PROTOCOL/blob/master/m365_register_map.h
+  Paco Gorina NinebotMetrics: http://www.gorina.es/9BMetrics/
 
 
 /*next steps:
@@ -8,7 +11,12 @@
 - verify structs/data
 	-> decoder finished, start with requestor
 
+//FIX: WIFI OFF Prints all the time.... :(
+
+/*TODO: 
+    rename telnet stuff to clientservices or similar and add http
 */
+
 #ifdef ESP32
   #include <WiFi.h>
   #include <WiFiUdp.h>
@@ -22,18 +30,15 @@
 
 #include <ArduinoOTA.h>
 
-//RESOLDER RX PIN... :D
+/* Modifications to ADAFRUIT SSD1306 Library 1.02for ESP32:
+ *  Adafruit_SSD1306.h:35 - #elif defined(ESP8266) || defined(ESP32) || defined(ARDUINO_STM32_FEATHER)
+ *  Adafruit_SSD1306.cpp:27 - #if !defined(__ARM_ARCH) && !defined(ENERGIA) && !defined(ESP8266) && !defined(ESP32)
+ */
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
-//more ansi codes...
-// http://www.termsys.demon.co.uk/vtansi.htm
+#define swversion "ESP32 M365 OLED\r\nv20180610"
 
-//FIX: WIFI OFF Prints all the time.... :(
-
-/*TODO: 
-    rename telnet stuff to clientservices or similar and add http
-*/
-
-#define swversion "ESP32 M365 OLED\r\nv20180609"
 //DEBUG Settings
   //#define debug_dump_states //dump state machines state
   //#define debug_dump_rawpackets //dump raw packets to Serial/Telnet
@@ -46,27 +51,24 @@
   #define mqtt_server "192.168.0.31"
   #define mqtt_port 1883
 #endif
+
 #define OTApwd "h5fj8ovbthrfd65b4"
 
 //OLED
-  /* Modifications to ADAFRUIT SSD1306 Library 1.02for ESP32:
-   *  Adafruit_SSD1306.h:35 - #elif defined(ESP8266) || defined(ESP32) || defined(ARDUINO_STM32_FEATHER)
-   *  Adafruit_SSD1306.cpp:27 - #if !defined(__ARM_ARCH) && !defined(ENERGIA) && !defined(ESP8266) && !defined(ESP32)
-   */
-  #include <Adafruit_GFX.h>
-  #include <Adafruit_SSD1306.h>
   #define sclpin GPIO_NUM_15
   #define sdapin GPIO_NUM_4 
   #define OLED_RESET 16 //original war das auch 4, -1 geht auch -> ist gpio nummer... somit nicht belegt...
   Adafruit_SSD1306 display(OLED_RESET);
-  //Standard font, display.setTextSize(1); = 8x8pix (Char = 7x7, 1 blank right/bottom
+  //Standard font, display.setTextSize(1); = 8x8pix (Char = 7x7, 1 blank right/bottom)
   #define line1 0
   #define line2 8
   #define line3 16
   #define line4 32
   #define line5 48
   #define line6 56
+
 //WLAN
+  #define maxssids 1
   #define ssid1 "m365dev"
   #define password1 "h5fj8bvothrfd65b4"
   #define ssid2 "..."
@@ -78,12 +80,16 @@
   const char *appassword="365";
   //#define staticip
   #ifdef staticip
-    IPAddress ip(192,168,0,149);  //Node static IP
+    IPAddress ip(192,168,0,149);
     IPAddress gateway(192,168,0,1);
     IPAddress dns(192,168,0,1);
     IPAddress subnet(255,255,255,0);
   #endif
   
+  uint8_t currentssidindex = 0;
+  uint8_t apnumclientsconnected=0;
+  uint8_t apnumclientsconnectedlast=0;
+
   uint8_t wlanstate = 0;
   uint8_t wlanstateold = 0;
   #define wlanoff 0
@@ -94,25 +100,14 @@
   #define wlanap 5
   #define wlanturnoff 6 
 
-  unsigned long wlanconnecttimestamp = 0;
   #define wlanconnecttimeout 10000 //timeout for connecting to one of  the known ssids
   #define wlanapconnecttimeout 60000 //timeout in ap mode until client needs to connect / ap mode turns off
-  uint8_t currentssidindex = 0;
-  #define maxssids 1
-  uint8_t apnumclientsconnected=0;
-  uint8_t apnumclientsconnectedlast=0;
-
-  unsigned long userconnecttimestamp = 0;
-  #define userconnecttimeout 600000 //timeout for connecting to telnet/http after wlan connection has been established with ap or client
-  
-  unsigned long telnetlastrefreshtimestamp = 0;
-  #define telnetrefreshanyscreen 100 //refresh telnet screen every xx ms
-  #define telnetrefreshrawarrayscreen 500 //refresh telnet screen every xx ms
+  unsigned long wlanconnecttimestamp = 0;
 //TELNET
   #define MAX_SRV_CLIENTS 1
   WiFiServer server(36523);
   //WiFiServer telnetserver(36523);
-  //WiFiServer rawserver(36524);
+  WiFiServer rawserver(36524);
   WiFiClient serverClients[MAX_SRV_CLIENTS];
   uint8_t telnetstate = 0;
   uint8_t telnetstateold = 0;
@@ -123,9 +118,27 @@
   #define telnetturnoff 4
   #define telnetdisconnectclients 5
 
-  //char telnetbuffer[2000];
+  #define userconnecttimeout 600000 //timeout for connecting to telnet/http after wlan connection has been established with ap or client
+  #define telnetrefreshanyscreen 100 //refresh telnet screen every xx ms
+  #define telnetrefreshrawarrayscreen 500 //refresh telnet screen every xx ms
+  unsigned long userconnecttimestamp = 0;
+  unsigned long telnetlastrefreshtimestamp = 0;
+  
+  //telnet screens
+  #define ts_telemetrie 0
+  #define ts_statistics 1
+  #define ts_esc_raw 2
+  #define ts_ble_raw 3
+  #define ts_bms_raw 4
+  #define ts_x1_raw 5
+  #define ts_esc_array 6
+  #define ts_ble_array 7
+  #define ts_bms_array 8
+  #define ts_x1_array 9
+  uint8_t telnetscreen = ts_statistics;
+  uint8_t telnetscreenold = telnetscreen;
+
   //ANSI
-  // ansi stuff, could always use printf instead of concat
   String ansiPRE  = "\033"; // escape code
   String ansiHOME = "\033[H"; // cursor home
   String ansiESC  = "\033[2J"; // esc
@@ -140,7 +153,7 @@
   String ansiBLUF = "\033[32m"; // blue foreground
   String BELL     = "\a";
 
-//M365
+//M365 - serial
   HardwareSerial Serial1(2);  // UART1/Serial1 pins RX 16, TX17
   #define UART2RX GPIO_NUM_5
   #define UART2TX GPIO_NUM_17
@@ -156,8 +169,9 @@
     //#define Serial1RX Serial1.begin(115200,SERIAL_8N1, UART_RX_ONLY, UART2RX, UART2TX)
     #define Serial1TX Serial1.begin(115200,SERIAL_8N1, UART_TX_ONLY, UART2RX, UART2TX)
   #endif
-  
-  #define maxlen 256
+
+//M365 - serial receiver
+  #define maxlen 256 //serial buffer size in bytes
   uint8_t crc1=0;
   uint8_t crc2=0;
   uint16_t crccalc=0;
@@ -175,208 +189,193 @@
   #define m365receiverpacket5 6 //received a packet, test for checksum
   #define m365receiverstorepacket 7 //packet received, checksum valid, store in array, jump back to receiverready for next packet, set newpacket flag
 
+//M365 - packets
   uint8_t m365packetstate = 0;
   uint8_t m365packetstateold = 0;
   #define m365packetidle 0
   #define m365newpacket 1
+  //offsets in sbuf
+  #define i_address 0
+  #define i_hz 1
+  #define i_offset 2
+  #define i_payloadstart 3
+  #define address_ble 0x20
+  #define address_x1 0x21
+  #define address_esc 0x23
+  #define address_bms 0x25
 
-//M365 Statistics
+//#define MastertoBATT 0x22 - from CamiAlfa not used so far
+
+//M365 - Statistics
   uint16_t packets_rec=0;
   uint16_t packets_crcok=0;
   uint16_t packets_crcfail=0;
   uint16_t packetsperaddress[256];
 
+//M365 Device Buffers & Structs
+  typedef struct {
+    uint8_t u1[1];
+    uint8_t throttle;
+    uint8_t brake;
+    uint8_t u2[509];
+  } blestruct;
 
-//OLED
+  typedef struct {
+    uint8_t mode; //offset 0x00 mode: 0-stall, 1-drive, 2-eco stall, 3-eco drive
+    uint8_t battleds;  //offset 0x01 battery status 0 - min, 7(or 8...) - max
+    uint8_t light;  //offset 0x02 0= off, 0x64 = on
+    uint8_t beepaction;  //offset 0x03 "beepaction" ?
+    uint8_t u1[508];
+  } x1struct;
 
-//TIMERs
-  //wlanconnecttimeout
-  //telnetconnecttimeout
-  //??
+  typedef struct {
+    uint16_t u1[10]; //offset 0-0x1F
+    unsigned char serial[14]; //offset 0x20-0x2D
+    unsigned char pin[6]; //offset 0x2E-0x33
+    uint16_t fwversion; //offset 0x34-035,  e.g. 0x133 = 1.3.3
+    uint16_t u2[10]; //offset 0x36-0x49
+    uint16_t remainingdistance; //offset 0x4a-0x4B e.g. 123 = 1.23km
+    uint16_t u3[14]; //offset 0x4C-0x75
+    uint16_t triptime; //offset 0x76-0x77 trip time in seconds
+    uint16_t u4[2]; //offset 0x4C-0x75
+    uint16_t frametemp1; //offset 0x7C-0x7D /10 = temp in °C
+    uint16_t u5[36]; //offset 0x7e-0xe9
+    uint16_t ecomode; //offset 0xEA-0xEB; on=1, off=0
+    uint16_t u6[10]; //offset 0xec-0xf5
+    uint16_t kers; //offset 0xf6-0xf7; 0 = weak, 1= medium, 2=strong
+    uint16_t cruisemode; //offset 0xf8-0xf9, off 0, on 1
+    uint16_t taillight; //offset 0xfa-0xfb, off 0, on 2
+    uint16_t u7[50]; //offset  0xfc-0x15f
+    uint16_t error; //offset 0x160-0x161
+    uint16_t u8[3]; //offset 0x162-0x167
+    uint16_t battpercent; //offset 0x168-0x169
+    uint16_t speed; //0x16A-0x16B meter per second?
+    uint16_t averagespeed; //0x16C-0x16D meter per second?
+    uint32_t totaldistance; //0x16e-0x171
+    uint16_t tripdistance; //0x172-0x173
+    uint16_t u9[1]; //offset 0x174-0x175 
+    uint16_t frametemp2; //0x176-0x177 /10 = temp in °C
+    uint16_t u10[68]; //offset 0x178-0x200 
+  } escstruct;
+
+  typedef struct {
+    uint16_t u1[10]; //offset 0-0x1F
+    unsigned char serial[14]; //offset 0x20-0x2D
+    uint16_t fwversion; //offset 0x2E-0x2f e.g. 0x133 = 1.3.3
+    uint16_t totalcapacity; //offset 0x30-0x31 mAh
+    uint16_t u2[7]; //offset 0x32-0x3f
+    uint16_t proddate; //offset 0x40-0x41
+        //fecha a la batt 7 MSB->año, siguientes 4bits->mes, 5 LSB ->dia ex:
+      //b 0001_010=10, año 2010
+      //        b 1_000= 8 agosto
+      //            b  0_1111=15 
+      //  0001_0101_0000_1111=0x150F 
+    uint16_t u3[0x10]; //offset 0x42-0x61
+    uint16_t remainingcapacity; //offset 0x62-0x63
+    uint16_t remainingpercent; //offset 0x64-0x65
+    int16_t current; //offset 0x66-67 - negative = charging; /100 = Ampere
+    uint16_t voltage; //offset 0x68-69 /10 = Volt
+    uint16_t temperature; //offset 0x6A-0x6B -20 = °C
+    uint16_t u4[4]; //offset 0x6C-0x75
+    uint16_t health; //offset 0x76-0x77; 0-100, 60 schwellwert "kaputt"
+    uint16_t u5[4]; //offset 0x78-0x7F
+    uint16_t Cell1Voltage; //offset 0x80-0x81
+    uint16_t Cell2Voltage; //offset 0x82-0x83
+    uint16_t Cell3Voltage; //offset 0x84-0x85
+    uint16_t Cell4Voltage; //offset 0x86-0x87
+    uint16_t Cell5Voltage; //offset 0x88-0x89
+    uint16_t Cell6Voltage; //offset 0x8A-0x8B
+    uint16_t Cell7Voltage; //offset 0x8C-0x8D
+    uint16_t Cell8Voltage; //offset 0x8E-0x8F
+    uint16_t Cell9Voltage; //offset 0x90-0x91
+    uint16_t Cell10Voltage; //offset 0x92-0x93
+    uint16_t u6[182]; //offset 0x94-0x
+  } bmsstruct;
+
+  uint8_t bledata[512];
+  uint8_t x1data[512];
+  uint8_t escdata[512];
+  uint8_t bmsdata[512];
+
+  blestruct* bleparsed = (blestruct*)bledata;
+  x1struct* x1parsed = (x1struct*)x1data;
+  escstruct* escparsed = (escstruct*)escdata;
+  bmsstruct* bmsparsed = (bmsstruct*)bmsdata;
+
+  bool newdata = false;
+
+//M365 - request stuff - prepared, values not checked and not in use so far
+  //request array for ble - address 0x20: offset, len
+  //those values do not need to be requested as ble module sends them on change
+  uint16_t blerequests[][2]= {
+    { 1, 1}, //throttle
+    { 1, 1} //brake
+  };
+
+  //request array for "x1" unkown device/meaning - address 0x21: offset, len
+  uint16_t x1requests[][2]= {
+    { 0, 1}, //mode: 0-stall, 1-drive, 2-eco stall, 3-eco drive
+    { 1, 1}, //batt leds: battery status 0 - min, 7(or 8...) - max
+    { 2, 1}, //light 0= off, 0x64 = on
+    { 3, 1} //"beepaction" ?
+  };
+
+
+
+  //request array for esc - address 0x23: offset, len
+  uint16_t escrequests[][2]= {
+    { 0x25, 2}, //RemainingMilage/100 =km
+    { 0x3A, 2}, //Power on Time in Seconds
+    { 0x3C, 2}, //Riding Time in Seconds
+    { 0xBA, 2}, //current speed / 1000 in km/h
+    { 0xBC, 2}, //Average Speed/1000 in km/h
+    { 0xBE, 4}, //TotalMileage/1000
+    { 0xC2, 2}, //CurrentMilage/1000
+    { 0xC4, 2}, //Powerontime in seconds
+    { 0x3E, 2}, //mainframe temp (/10?)
+    { 0xC6, 2}, //MainframeTemp/10
+    { 0x7B, 1}, //recuperation:  0 - weak, 1 - medium, 2 - strong
+    { 0x7C, 1}, //cruise mode: 0 - cruise mode OFF; 1 - cruise mode ON
+    { 0x7D, 1} //rear light: 2 = ON, 0 = OFF
+  };
+
+  //request array for bms - address 0x25: offset, len
+  uint16_t bmsrequests[][2]= {
+    { 0x31, 2}, //remaining mAh
+    { 0x33, 1}, //percent remaining
+    { 0x34, 1}, //battery status?
+    { 0x35, 2}, //current        /100 = A
+    { 0x38, 2}, //batt voltage   /100 = V
+    { 0x3A, 1}, //temp 1 (-20 = °C)
+    { 0x3B, 1}, //temp 2 (-20 = °C)
+    { 0x40, 2}, //Voltage/1000 Cell 1
+    { 0x42, 2}, //Voltage/1000 Cell 2
+    { 0x44, 2}, //Voltage/1000 Cell 3
+    { 0x46, 2}, //Voltage/1000 Cell 4
+    { 0x48, 2}, //Voltage/1000 Cell 5
+    { 0x4A, 2}, //Voltage/1000 Cell 6
+    { 0x4C, 2}, //Voltage/1000 Cell 7
+    { 0x4E, 2}, //Voltage/1000 Cell 8
+    { 0x50, 2}, //Voltage/1000 Cell 9
+    { 0x52, 2}, //Voltage/1000 Cell 10
+    { 0x54, 2}, //Voltage/1000 Cell 11
+    { 0x56, 2}, //Voltage/1000 Cell 12
+    { 0x58, 2}, //Voltage/1000 Cell 13
+    { 0x5A, 2}, //Voltage/1000 Cell 14
+    { 0x5C, 2}, //Voltage/1000 Cell 15
+  };
 
 //Misc
   #define led GPIO_NUM_2
   int ledontime = 200;
   int ledofftime = 10000;
   unsigned long ledcurrenttime = 100;
-  
   uint8_t i;
   char tmp1[200];
   char tmp2[200];
   uint16_t tmpi;
   char chipid[7];
   char mac[12];
-
-
-//offsets in sbuf
-#define i_address 0
-#define i_hz 1
-#define i_offset 2
-#define i_payloadstart 3
-
-
-#define address_ble 0x20
-#define address_x1 0x21
-#define address_esc 0x23
-#define address_bms 0x25
-
-//#define MastertoM365 0x20
-//#define M365toMaster 0x23
-//#define MastertoBATT 0x22
-//#define BATTtoMaster 0x25
-
-
-//request array for ble - address 0x20: offset, len
-//those values do not need to be requested as ble module sends them on change
-uint16_t blerequests[][2]= {
-  { 1, 1}, //throttle
-  { 1, 1} //brake
-};
-
-//request array for "x1" unkown device/meaning - address 0x21: offset, len
-uint16_t x1requests[][2]= {
-  { 0, 1}, //mode: 0-stall, 1-drive, 2-eco stall, 3-eco drive
-  { 1, 1}, //batt leds: battery status 0 - min, 7(or 8...) - max
-  { 2, 1}, //light 0= off, 0x64 = on
-  { 3, 1} //"beepaction" ?
-};
-
-
-
-//request array for esc - address 0x23: offset, len
-uint16_t escrequests[][2]= {
-  { 0x25, 2}, //RemainingMilage/100 =km
-  { 0x3A, 2}, //Power on Time in Seconds
-  { 0x3C, 2}, //Riding Time in Seconds
-  { 0xBA, 2}, //current speed / 1000 in km/h
-  { 0xBC, 2}, //Average Speed/1000 in km/h
-  { 0xBE, 4}, //TotalMileage/1000
-  { 0xC2, 2}, //CurrentMilage/1000
-  { 0xC4, 2}, //Powerontime in seconds
-  { 0x3E, 2}, //mainframe temp (/10?)
-  { 0xC6, 2}, //MainframeTemp/10
-  { 0x7B, 1}, //recuperation:  0 - weak, 1 - medium, 2 - strong
-  { 0x7C, 1}, //cruise mode: 0 - cruise mode OFF; 1 - cruise mode ON
-  { 0x7D, 1} //rear light: 2 = ON, 0 = OFF
-};
-
-//request array for bms - address 0x25: offset, len
-uint16_t bmsrequests[][2]= {
-  { 0x31, 2}, //remaining mAh
-  { 0x33, 1}, //percent remaining
-  { 0x34, 1}, //battery status?
-  { 0x35, 2}, //current        /100 = A
-  { 0x38, 2}, //batt voltage   /100 = V
-  { 0x3A, 1}, //temp 1 (-20 = °C)
-  { 0x3B, 1}, //temp 2 (-20 = °C)
-  { 0x40, 2}, //Voltage/1000 Cell 1
-  { 0x42, 2}, //Voltage/1000 Cell 2
-  { 0x44, 2}, //Voltage/1000 Cell 3
-  { 0x46, 2}, //Voltage/1000 Cell 4
-  { 0x48, 2}, //Voltage/1000 Cell 5
-  { 0x4A, 2}, //Voltage/1000 Cell 6
-  { 0x4C, 2}, //Voltage/1000 Cell 7
-  { 0x4E, 2}, //Voltage/1000 Cell 8
-  { 0x50, 2}, //Voltage/1000 Cell 9
-  { 0x52, 2}, //Voltage/1000 Cell 10
-  { 0x54, 2}, //Voltage/1000 Cell 11
-  { 0x56, 2}, //Voltage/1000 Cell 12
-  { 0x58, 2}, //Voltage/1000 Cell 13
-  { 0x5A, 2}, //Voltage/1000 Cell 14
-  { 0x5C, 2}, //Voltage/1000 Cell 15
-};
-
-
-typedef struct {
-  uint8_t u1[1];
-  uint8_t throttle;
-  uint8_t brake;
-  uint8_t u2[509];
-} blestruct;
-
-typedef struct {
-  uint8_t mode; //offset 0x00 mode: 0-stall, 1-drive, 2-eco stall, 3-eco drive
-  uint8_t battleds;  //offset 0x01 battery status 0 - min, 7(or 8...) - max
-  uint8_t light;  //offset 0x02 0= off, 0x64 = on
-  uint8_t beepaction;  //offset 0x03 "beepaction" ?
-  uint8_t u1[508];
-} x1struct;
-
-typedef struct {
-  uint16_t u1[10]; //offset 0-0x1F
-  unsigned char serial[14]; //offset 0x20-0x2D
-  unsigned char pin[6]; //offset 0x2E-0x33
-  uint16_t fwversion; //offset 0x34-035,  e.g. 0x133 = 1.3.3
-  uint16_t u2[10]; //offset 0x36-0x49
-  uint16_t remainingdistance; //offset 0x4a-0x4B e.g. 123 = 1.23km
-  uint16_t u3[14]; //offset 0x4C-0x75
-  uint16_t triptime; //offset 0x76-0x77 trip time in seconds
-  uint16_t u4[2]; //offset 0x4C-0x75
-  uint16_t frametemp1; //offset 0x7C-0x7D /10 = temp in °C
-  uint16_t u5[36]; //offset 0x7e-0xe9
-  uint16_t ecomode; //offset 0xEA-0xEB; on=1, off=0
-  uint16_t u6[10]; //offset 0xec-0xf5
-  uint16_t kers; //offset 0xf6-0xf7; 0 = weak, 1= medium, 2=strong
-  uint16_t cruisemode; //offset 0xf8-0xf9, off 0, on 1
-  uint16_t taillight; //offset 0xfa-0xfb, off 0, on 2
-  uint16_t u7[50]; //offset  0xfc-0x15f
-  uint16_t error; //offset 0x160-0x161
-  uint16_t u8[3]; //offset 0x162-0x167
-  uint16_t battpercent; //offset 0x168-0x169
-  uint16_t speed; //0x16A-0x16B meter per second?
-  uint16_t averagespeed; //0x16C-0x16D meter per second?
-  uint32_t totaldistance; //0x16e-0x171
-  uint16_t tripdistance; //0x172-0x173
-  uint16_t u9[1]; //offset 0x174-0x175 
-  uint16_t frametemp2; //0x176-0x177 /10 = temp in °C
-  uint16_t u10[68]; //offset 0x178-0x200 
-} escstruct;
-
-typedef struct {
-  uint16_t u1[10]; //offset 0-0x1F
-  unsigned char serial[14]; //offset 0x20-0x2D
-  uint16_t fwversion; //offset 0x2E-0x2f e.g. 0x133 = 1.3.3
-  uint16_t totalcapacity; //offset 0x30-0x31 mAh
-  uint16_t u2[7]; //offset 0x32-0x3f
-  uint16_t proddate; //offset 0x40-0x41
-      //fecha a la batt 7 MSB->año, siguientes 4bits->mes, 5 LSB ->dia ex:
-    //b 0001_010=10, año 2010
-    //        b 1_000= 8 agosto
-    //            b  0_1111=15 
-    //  0001_0101_0000_1111=0x150F 
-  uint16_t u3[0x10]; //offset 0x42-0x61
-  uint16_t remainingcapacity; //offset 0x62-0x63
-  uint16_t remainingpercent; //offset 0x64-0x65
-  int16_t current; //offset 0x66-67 - negative = charging; /100 = Ampere
-  uint16_t voltage; //offset 0x68-69 /10 = Volt
-  uint16_t temperature; //offset 0x6A-0x6B -20 = °C
-  uint16_t u4[4]; //offset 0x6C-0x75
-  uint16_t health; //offset 0x76-0x77; 0-100, 60 schwellwert "kaputt"
-  uint16_t u5[4]; //offset 0x78-0x7F
-  uint16_t Cell1Voltage; //offset 0x80-0x81
-  uint16_t Cell2Voltage; //offset 0x82-0x83
-  uint16_t Cell3Voltage; //offset 0x84-0x85
-  uint16_t Cell4Voltage; //offset 0x86-0x87
-  uint16_t Cell5Voltage; //offset 0x88-0x89
-  uint16_t Cell6Voltage; //offset 0x8A-0x8B
-  uint16_t Cell7Voltage; //offset 0x8C-0x8D
-  uint16_t Cell8Voltage; //offset 0x8E-0x8F
-  uint16_t Cell9Voltage; //offset 0x90-0x91
-  uint16_t Cell10Voltage; //offset 0x92-0x93
-  uint16_t u6[182]; //offset 0x94-0x
-} bmsstruct;
-
-uint8_t bledata[512];
-uint8_t x1data[512];
-uint8_t escdata[512];
-uint8_t bmsdata[512];
-
-blestruct* bleparsed = (blestruct*)bledata;
-x1struct* x1parsed = (x1struct*)x1data;
-escstruct* escparsed = (escstruct*)escdata;
-bmsstruct* bmsparsed = (bmsstruct*)bmsdata;
-
-bool newdata = false;
 
 void reset_statistics() {
   packets_rec=0;
@@ -392,13 +391,13 @@ void reset_statistics() {
     x1data[j]=0;  
   }
 }
+
 void start_m365() {
   Serial1Full;
   m365receiverstate = m365receiverready;
   m365packetstate=m365packetidle;
   reset_statistics();
 }  //startm365
-
 
 void m365_handlepacket() {
  if (m365packetstate==m365newpacket) {
@@ -417,23 +416,6 @@ void m365_handlepacket() {
        }
       }*/
     #endif
-    /*
-    switch (sbuf[i_address]) {
-      case address_bms:
-          memcpy((void*) bmsdata[sbuf[i_offset]<<1], (void*)sbuf[i_payloadstart], len-3);
-        break;
-      case address_esc:
-          memcpy((void*) escdata[sbuf[i_offset]<<1], (void*)sbuf[i_payloadstart], len-3);
-        break;
-      case address_ble:
-          memcpy((void*) bledata[sbuf[i_offset]<<1], (void*)sbuf[i_payloadstart], len-3);
-        break;
-      case address_x1:
-          memcpy((void*) x1data[sbuf[i_offset]<<1], (void*)sbuf[i_payloadstart], len-3);
-        break;
-    }
-    */
-
     switch (sbuf[i_address]) {
       case address_bms:
           //Serial.printf("--> BMS start %d (sbuf offset %d, len %d)\r\n", sbuf[i_offset]<<1,sbuf[i_offset], len-3);
@@ -458,16 +440,12 @@ void m365_handlepacket() {
     newdata=true;
     m365packetstate=m365packetidle;
  } //if (m365packetstate==1)
- 
 } //m365_handlepacket
   
-
-
 void m365_receiver() { //recieves data until packet is complete
   uint8_t newbyte;
   if (Serial1.available()) {
     newbyte = Serial1.read();
-  
     switch(m365receiverstate) {
       case m365receiverready: //we are waiting for 1st byte of packet header 0x55
           if (newbyte==0x55) {
@@ -477,11 +455,7 @@ void m365_receiver() { //recieves data until packet is complete
       case m365receiverpacket1: //we are waiting for 2nd byte of packet header 0xAA
           if (newbyte==0xAA) {
             m365receiverstate = m365receiverpacket2;
-            //len=0;
-            //crc1=0;
-            //crc2=0;
-            //crccalc=0;
-          }
+            }
         break;
       case m365receiverpacket2: //we are waiting for packet length
           len = newbyte+1; //next byte will be 1st in sbuf, this is the packet-type1, len counted from 2nd byte in sbuf
@@ -533,26 +507,12 @@ void m365_receiver() { //recieves data until packet is complete
           } else {
             packets_crcfail++;
           }
-
-          m365receiverstate = m365receiverready; //reset and wait for next packet
+        m365receiverstate = m365receiverready; //reset and wait for next packet
         break;
     } //switch
   }//serial available
 } //m365_receiver
  
-
-#define ts_telemetrie 0
-#define ts_statistics 1
-#define ts_esc_raw 2
-#define ts_ble_raw 3
-#define ts_bms_raw 4
-#define ts_x1_raw 5
-#define ts_esc_array 6
-#define ts_ble_array 7
-#define ts_bms_array 8
-#define ts_x1_array 9
-uint8_t telnetscreen = ts_statistics;
-uint8_t telnetscreenold = telnetscreen;
 
 void telnet_refreshscreen() {
   uint8_t k=0;
@@ -560,7 +520,6 @@ void telnet_refreshscreen() {
     if (serverClients[i] && serverClients[i].connected()){
         if (telnetscreenold!=telnetscreen) { serverClients[i].print(ansiESC); telnetscreenold=telnetscreen; }
         serverClients[i].print(ansiHOME);
-        
         serverClients[i].print(ansiCLC); 
         switch (telnetscreen) {
           case ts_telemetrie:
@@ -594,29 +553,25 @@ void telnet_refreshscreen() {
               serverClients[i].print("M365 Statistics Screen");
             break;
         }
-        //serverClients[i].print(ansiGRN); 
-        //serverClients[i].print(ansiREDF);
-        //serverClients[i].print("\033[?25l");
-        //serverClients[i].printf(" %05d\r\n\r\n",tmpi++);
-        //serverClients[i].print(ansiEND);
-        //serverClients[i].print(ansiEND);
         tmpi++;
         if (tmpi % 2) {
           serverClients[i].println(" #\r\n");
         } else {
           serverClients[i].println("  \r\n");
         }
-        
         switch (telnetscreen) {
           case ts_telemetrie:
               if (newdata) {
                 serverClients[i].printf("\r\nBLE\r\n Throttle: %03d Brake %03d\r\n",bleparsed->throttle,bleparsed->brake);
-                serverClients[i].printf("\r\nBMS Serial: xx Version: %05d\r\n", bmsparsed->fwversion);
+                sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
+                serverClients[i].printf("\r\n\r\nBMS Serial: %s Version: %05d\r\n", tmp1,bmsparsed->fwversion);
                 serverClients[i].printf(" Capacity Total: %05d Remaining %05d Percent %05d Temperature %05d Health %05d\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent, bmsparsed->temperature, bmsparsed->health);
                 serverClients[i].printf(" Voltage: %05d Current %05d\r\n",bmsparsed->voltage, bmsparsed->current);
                 serverClients[i].printf(" C1: %05d C2: %05d C3: %05d C4: %05d C5: %05d C6: %05d C7: %05d C8: %05d C9: %05d C10: %05d\r\n",bmsparsed->Cell1Voltage,bmsparsed->Cell2Voltage,bmsparsed->Cell3Voltage,bmsparsed->Cell4Voltage,bmsparsed->Cell5Voltage,bmsparsed->Cell6Voltage,bmsparsed->Cell7Voltage,bmsparsed->Cell8Voltage,bmsparsed->Cell9Voltage,bmsparsed->Cell10Voltage);
-                serverClients[i].printf("\r\nESC Serial: xx Version: %05d", escparsed->fwversion);
-                serverClients[i].printf(" Pin: 123456 Error %05d\r\n",escparsed->error);
+                sprintf(tmp1,"%s%s%s%s%s%s%s%s%s%s%s%s%s%s",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
+                serverClients[i].printf("\r\n\r\nESC Serial: %s Version: %05d", tmp1,escparsed->fwversion);
+                sprintf(tmp1,"%s%s%s%s%s%s",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
+                serverClients[i].printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
                 serverClients[i].printf(" Distance Total: %05d Trip: %05d Remaining %05d", escparsed->totaldistance,escparsed->tripdistance,escparsed->remainingdistance);
                 serverClients[i].printf(" Trip Time: %05d\r\n",escparsed->triptime);
                 serverClients[i].printf(" FrameTemp1: %05d FrameTemp2: %05d\r\n", escparsed->frametemp1, escparsed->frametemp2);
@@ -642,6 +597,7 @@ void telnet_refreshscreen() {
               telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;           
             break;
           case ts_esc_raw:
+              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
                     serverClients[i].printf("\r\n%03X: ",j); 
@@ -655,6 +611,7 @@ void telnet_refreshscreen() {
               telnetlastrefreshtimestamp=millis()+telnetrefreshrawarrayscreen;
             break;
           case ts_ble_raw:
+              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
                     serverClients[i].printf("\r\n%03X: ",j); 
@@ -668,6 +625,7 @@ void telnet_refreshscreen() {
               telnetlastrefreshtimestamp=millis()+telnetrefreshrawarrayscreen;
             break;
           case ts_bms_raw:
+              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
                     serverClients[i].printf("\r\n%03X: ",j); 
@@ -681,6 +639,7 @@ void telnet_refreshscreen() {
               telnetlastrefreshtimestamp=millis()+telnetrefreshrawarrayscreen;
             break;
           case ts_x1_raw:
+              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
                     serverClients[i].printf("\r\n%03X: ",j); 
@@ -705,8 +664,8 @@ void telnet_refreshscreen() {
         yield();
     }
   } //i 0 to maxclients
-
 }
+
 void handle_telnet() {
   boolean hc = false;
    switch(telnetstate) {
@@ -726,8 +685,6 @@ void handle_telnet() {
         userconnecttimestamp = millis()+userconnecttimeout;  
       break;
     case telnetlistening: 
-          //if (WiFi.isConnected()) {
-            //check if there are any new clients
             if (server.hasClient()) {
               for(i = 0; i < MAX_SRV_CLIENTS; i++){
                 //find free/disconnected spot
@@ -753,7 +710,6 @@ void handle_telnet() {
             if (userconnecttimestamp<millis()) {
               telnetstate = telnetturnoff;
             }
-          //} //WiFi.isConnected
       break;
     case telnetclientconnected: 
         //TODO check if clients are still connected... else start client connect timer and fall back to listening mode
@@ -774,9 +730,7 @@ void handle_telnet() {
             } //telnetrefreshtimer
 
         } //else !hc
-        //if (WiFi.isConnected()) {
           //check clients for data
-          
           for(i = 0; i < MAX_SRV_CLIENTS; i++){
             if (serverClients[i] && serverClients[i].connected()){
               if(serverClients[i].available()){
@@ -795,36 +749,23 @@ void handle_telnet() {
                   case 0x4E: telnetscreen=ts_ble_array; break; //N
                   case 0x58: telnetscreen=ts_x1_array; break;  //X
                   case 0x72: reset_statistics(); break;  //r
-                  
-
                 } //switch
                 //while(serverClients[i].available()) Serial1.write(serverClients[i].read());
               } //serverclients available
             } //if connected
           }  //for i
-          
-/*            else {
-              if (serverClients[i]) {
-                serverClients[i].stop();
-              }
-            }
-          }
-        //}
-*/
       break;
     case telnetdisconnectclients:
         for(i = 0; i < MAX_SRV_CLIENTS; i++) {
           if (serverClients[i]) serverClients[i].stop();
         }
         telnetstate = telnetturnoff;
-
       break;
     case telnetturnoff:
         server.end();
         wlanstate=wlanturnoff; 
       break;
    } //switch (telnetstate)
-  
 } //handle_telnet
 
 void WiFiEvent(WiFiEvent_t event) {
@@ -952,7 +893,6 @@ void handle_wlan() {
           ledontime=500; ledofftime=500; ledcurrenttime = millis();
           ArduinoOTA.begin();
         }
-
       break;
     case wlanconnected:
           if (WiFi.status() != WL_CONNECTED) {
@@ -966,7 +906,6 @@ void handle_wlan() {
                   telnetstate = telnetdisconnectclients;
               }
              wlanstate = wlanturnoff;
-
           }
       break;
     case wlanap: //make 2 states - waiting for clients & has clients
@@ -1035,8 +974,6 @@ void handle_wlan() {
   }
 #endif
 
-
-
 void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin,sclpin);
   display.clearDisplay();
@@ -1046,18 +983,6 @@ void setup() {
   display.setTextColor(WHITE);
   display.setCursor(0,0);
   display.println(swversion);
-  /*display.setCursor(0,line6);
-  display.println("3");
-  display.setCursor(8,line6);
-  display.println("5");
-  display.setCursor(16,line6);
-  display.println("8");
-*/
-  //display.setTextColor(BLACK, WHITE); // 'inverted' text
-  //display.println(3.141592);
-  //display.setTextSize(2);
-  //display.setTextColor(WHITE);
-  //display.print("0x"); display.println(0xDEADBEEF, HEX);
   display.display();
   pinMode(led,OUTPUT);
   digitalWrite(led,LOW);
@@ -1070,16 +995,6 @@ void setup() {
     sprintf(chipid,"%02X%02X%02X",(uint8_t)(cit>>24),(uint8_t)(cit>>32),(uint8_t)(cit>>40));
     Serial.println(chipid);
     sprintf(mac,"%02X%02X%02X%02X%02X%02X",(uint8_t)(cit),(uint8_t)(cit>>8),(uint8_t)(cit>>16),(uint8_t)(cit>>24),(uint8_t)(cit>>32),(uint8_t)(cit>>40));
-    /*
-    Serial.printf("ESP32 Chip ID_1 = %04X\r\n",(uint16_t)(cit>>48));
-    Serial.printf("ESP32 Chip ID_2 = %04X\r\n",(uint16_t)(cit>>32));
-    Serial.printf("ESP32 Chip ID_3 = %04X\r\n",(uint16_t)(cit>>16));
-    Serial.printf("ESP32 Chip ID_4 = %04X\r\n",(uint16_t)(cit));
-    Serial.printf("ESP32 Chip ID_A = %08X\r\n",(uint32_t)(cit>>32));
-    Serial.printf("ESP32 Chip ID_B = %08X\r\n",(uint32_t)(cit));
-    Serial.printf("ESP32 Chip ID_X = %08X%08X\r\n",(uint32_t)(cit>>32),(uint32_t)(cit));
-    Serial.printf("ESP32 Chip ID_Y = %16X\r\n",cit);
-    */
   #elif defined(ESP8266)
     cit = ESP.getChipId();
     sprintf(chipid,"%02X%02X%02X",(uint8_t)(cit>>24),(uint8_t)(cit>>32),(uint8_t)(cit>>40));
@@ -1149,7 +1064,6 @@ void setup() {
     display.printf("OTA ERROR: %u %s", error,tmp1);
     display.display();
     delay(2000);
-
   });
   ArduinoOTA.setPassword(OTApwd);
   sprintf(tmp2, "es-m36-%s",mac);
@@ -1177,7 +1091,7 @@ void loop() {
     print_states();
   #endif
   //m365_detectapp(); //detect if smartphone is connected and requests data, so we stay quiet
-  //m365_transmitter
+  //m365_requestor();
   handle_led();
 #ifdef usemqtt
   client.loop();
