@@ -5,7 +5,7 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - WiFi Auto Connect to known SSIDs or AP-Mode & Telnet with Timeouts to auto-turnoff Telnet/WiFi
 - Firmwareupdates (of ESP Device, not the scooter) over WiFi
 - Telnet on Port 36523 with different Screens
-- Telnet on Port 36524 with raw byte dump from M365 Bus
+- Telnet on Port 36524 with raw byte dump from M365 Bus ("read only")
 - M365 Serial Receiver and Packet decoder into Array per Address
 - Decoder of BMS Data Array to Variable Values/Telemetrie Screen
 
@@ -46,6 +46,6 @@ M365 has a Serial One Wire Bus between BLE Module and ESC which consists of 4 wi
 - VBatt (Green, "P", always available)
 - 5V (Red, "5", only when scooter is turned on)
 
-ESP32/8266 need a Vcc of 3.3V, while at the same time the GPIO Pins are 5V save, so you can wire the 5V to a Vreg for 3.3v which feed the ESP, while the Serial Connection can be wired to RX/TX Pins.
+ESP32/8266 needs a Vcc of 3.3V, while at the same time the GPIO Pins are 5V save, so you can wire the 5V to a Vreg for 3.3v which feed the ESP, while the Serial Connection can be wired to RX/TX Pins.
 It might be a idea to use e.g. 680R or 1k in series to protect the gpio, as well as add a diode from rx in series with a ~100-200R towards TX
 

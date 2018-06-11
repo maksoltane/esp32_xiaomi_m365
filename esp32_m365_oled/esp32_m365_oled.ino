@@ -36,27 +36,37 @@ references used:
  *  Adafruit_SSD1306.h:35 - #elif defined(ESP8266) || defined(ESP32) || defined(ARDUINO_STM32_FEATHER)
  *  Adafruit_SSD1306.cpp:27 - #if !defined(__ARM_ARCH) && !defined(ENERGIA) && !defined(ESP8266) && !defined(ESP32)
  */
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-#define swversion "ESP32 M365 OLED\r\nv20180610"
+#define swversion "ESP32 M365 OLED\r\nv20180611"
+
+//functional modules
+  #define useoled1 //comment out to disable oled functionality
+  //#define usewlanclientmode //NOT IMPLEMENTED comment out to disable Wifi Client functionality
+  //#define usewlanapmode //NOT IMPLEMENTED  comment out to disable Wifi Access Poiint functionality
+  #define usetelnetserver //comment out to disable telnet status/telemetrie server, this also disables RAW Server (so only mqtt might be left for leaving wifi activated)
+  #define userawserver //comment out to disable RAW Serial Data BUS Stream on Port 36524
+  //#define usemqtt //NOT IMPLEMENTED comment out to disable mqtt functionality
 
 //DEBUG Settings
   //#define debug_dump_states //dump state machines state
   //#define debug_dump_rawpackets //dump raw packets to Serial/Telnet
   #define debug_dump_packetdecode //dump infos from packet decoder
 
-//#define usemqtt
-#ifdef usemqtt
-  #include <PubSubClient.h>
-  #define mqtt_clientID "m365"
-  #define mqtt_server "192.168.0.31"
-  #define mqtt_port 1883
-#endif
+//Config Settings (should be adopted to personal desires)
 
-#define OTApwd "h5fj8ovbthrfd65b4"
+  #ifdef usemqtt
+    #include <PubSubClient.h>
+    #define mqtt_clientID "m365"
+    #define mqtt_server "192.168.0.31"
+    #define mqtt_port 1883
+  #endif
+
+  #define OTApwd "h5fj8ovbthrfd65b4"
 
 //OLED
+#ifdef useoled1
+  #include <Adafruit_SSD1306.h>
+  #include <Adafruit_GFX.h>
   #define sclpin GPIO_NUM_15
   #define sdapin GPIO_NUM_4 
   #define OLED_RESET 16 //original war das auch 4, -1 geht auch -> ist gpio nummer... somit nicht belegt...
@@ -68,6 +78,7 @@ references used:
   #define line4 32
   #define line5 48
   #define line6 56
+#endif
 
 //WLAN
   #define maxssids 1
@@ -80,8 +91,8 @@ references used:
 
   const char *apssid ="m365oled";
   const char *appassword="365";
-  //#define staticip
-  #ifdef staticip
+  //#define staticip //use static IP in Client Mode, Comment out for DHCP
+  #ifdef staticip //static IP for Client Mode, in AP Mode default is 192.168.4.1/24
     IPAddress ip(192,168,0,149);
     IPAddress gateway(192,168,0,1);
     IPAddress dns(192,168,0,1);
@@ -105,14 +116,18 @@ references used:
   #define wlanconnecttimeout 10000 //timeout for connecting to one of  the known ssids
   #define wlanapconnecttimeout 60000 //timeout in ap mode until client needs to connect / ap mode turns off
   unsigned long wlanconnecttimestamp = 0;
+
+#ifdef usetelnetserver
 //TELNET
-  #define MAX_SRV_CLIENTS 1
-  WiFiServer server(36523);
-  //WiFiServer telnetserver(36523);
+  WiFiServer telnetserver(36523);
+  WiFiClient telnetclient;
   WiFiServer rawserver(36524);
-  WiFiClient serverClients[MAX_SRV_CLIENTS];
+  WiFiClient rawclient;
   uint8_t telnetstate = 0;
   uint8_t telnetstateold = 0;
+  uint8_t telnetrawstate = 0;
+  uint8_t telnetrawstateold = 0;
+  
   #define telnetoff 0
   #define telnetturnon 1
   #define telnetlistening 2
@@ -154,7 +169,7 @@ references used:
   String ansiGRNF = "\033[34m"; // green foreground
   String ansiBLUF = "\033[32m"; // blue foreground
   String BELL     = "\a";
-
+#endif
 //M365 - serial
   HardwareSerial Serial1(2);  // UART1/Serial1 pins RX 16, TX17
   #define UART2RX GPIO_NUM_5
@@ -234,7 +249,7 @@ references used:
     uint16_t u1[0x10]; //offset 0-0x1F
     char serial[14]; //offset 0x20-0x2D
     char pin[6]; //offset 0x2E-0x33
-    uint16_t fwversion; //offset 0x34-035,  e.g. 0x133 = 1.3.3
+    uint8_t fwversion[2]; //offset 0x34-035,  e.g. 0x133 = 1.3.3
     uint16_t u2[10]; //offset 0x36-0x49
     uint16_t remainingdistance; //offset 0x4a-0x4B e.g. 123 = 1.23km
     uint16_t u3[14]; //offset 0x4C-0x75
@@ -423,24 +438,19 @@ void m365_handlepacket() {
     #endif
     switch (sbuf[i_address]) {
       case address_bms:
-          //Serial.printf("--> BMS start %d (sbuf offset %d, len %d)\r\n", sbuf[i_offset]<<1,sbuf[i_offset], len-3);
           memcpy((void*)& bmsdata[sbuf[i_offset]<<1], (void*)& sbuf[i_payloadstart], len-3);
         break;
       case address_esc:
-          //Serial.printf("--> ESC start %d (sbuf offset %d, len %d)\r\n", sbuf[i_offset]<<1,sbuf[i_offset], len-3);
           memcpy((void*)& escdata[sbuf[i_offset]<<1], (void*)& sbuf[i_payloadstart], len-3);
         break;
       case address_ble:
-          //Serial.printf("--> BLE start %d (sbuf offset %d, len %d)\r\n", sbuf[i_offset]<<1,sbuf[i_offset], len-3);
           memcpy((void*)& bledata[sbuf[i_offset]<<1], (void*)& sbuf[i_payloadstart], len-3);
         break;
       case address_x1:
-          //Serial.printf("--> X1 start %d (sbuf offset %d, len %d)\r\n", sbuf[i_offset]<<1,sbuf[i_offset], len-3);
           memcpy((void*)& x1data[sbuf[i_offset]<<1], (void*)& sbuf[i_payloadstart], len-3);
         break;
       default:
-          Serial.println("");
-       break;
+        break;
     }
     newdata=true;
     m365packetstate=m365packetidle;
@@ -451,6 +461,9 @@ void m365_receiver() { //recieves data until packet is complete
   uint8_t newbyte;
   if (Serial1.available()) {
     newbyte = Serial1.read();
+#ifdef userawserver
+     if (rawclient && rawclient.connected()) { rawclient.write(newbyte); }
+#endif    
     switch(m365receiverstate) {
       case m365receiverready: //we are waiting for 1st byte of packet header 0x55
           if (newbyte==0x55) {
@@ -496,7 +509,7 @@ void m365_receiver() { //recieves data until packet is complete
               if (serverClients[i] && serverClients[i].connected()){
                 serverClients[i].write(tmp1,26);
                 for(i = 0; i < (len); i++){
-                  serverClients[i].printf("%02X ",sbuf[i]);
+                  telnetclient.printf("%02X ",sbuf[i]);
                   //serverClients[i].write(tmp1,3);
                 }
                 serverClients[i].write(tmp2, 12);
@@ -518,147 +531,147 @@ void m365_receiver() { //recieves data until packet is complete
   }//serial available
 } //m365_receiver
  
-
+#ifdef usetelnetserver
 void telnet_refreshscreen() {
   uint8_t k=0;
-  for(i = 0; i < MAX_SRV_CLIENTS; i++){
-    if (serverClients[i] && serverClients[i].connected()){
-        if (telnetscreenold!=telnetscreen) { serverClients[i].print(ansiESC); telnetscreenold=telnetscreen; }
-        serverClients[i].print(ansiHOME);
-        serverClients[i].print(ansiCLC); 
+  //for(i = 0; i < MAX_SRV_CLIENTS; i++){
+    if (telnetclient && telnetclient.connected()){
+        if (telnetscreenold!=telnetscreen) { telnetclient.print(ansiESC); telnetscreenold=telnetscreen; }
+        telnetclient.print(ansiHOME);
+        telnetclient.print(ansiCLC); 
         switch (telnetscreen) {
           case ts_telemetrie:
-              serverClients[i].print("M365 Telemetrie Screen"); 
+              telnetclient.print("M365 Telemetrie Screen"); 
             break;
           case ts_esc_raw:
-              serverClients[i].print("M365 ESC RAW Screen"); 
+              telnetclient.print("M365 ESC RAW Screen"); 
             break;
           case ts_ble_raw:
-              serverClients[i].print("M365 BLE RAW Screen"); 
+              telnetclient.print("M365 BLE RAW Screen"); 
             break;
           case ts_bms_raw:
-              serverClients[i].print("M365 BMS RAW Screen"); 
+              telnetclient.print("M365 BMS RAW Screen"); 
             break;
           case ts_x1_raw:
-              serverClients[i].print("M365 X1 RAW Screen"); 
+              telnetclient.print("M365 X1 RAW Screen"); 
             break;
           case ts_esc_array:
-              serverClients[i].print("M365 ESC Array Screen"); 
+              telnetclient.print("M365 ESC Array Screen"); 
             break;
           case ts_ble_array:
-              serverClients[i].print("M365 BLE ARRAY Screen"); 
+              telnetclient.print("M365 BLE ARRAY Screen"); 
             break;
           case ts_bms_array:
-              serverClients[i].print("M365 BMS ARRAY Screen"); 
+              telnetclient.print("M365 BMS ARRAY Screen"); 
             break;
           case ts_x1_array:
-              serverClients[i].print("M365 X1 ARRAY Screen"); 
+              telnetclient.print("M365 X1 ARRAY Screen"); 
             break;
           case ts_statistics:
-              serverClients[i].print("M365 Statistics Screen");
+              telnetclient.print("M365 Statistics Screen");
             break;
         }
         tmpi++;
         if (tmpi % 2) {
-          serverClients[i].println(" .\r\n");
+          telnetclient.println(" .\r\n");
         } else {
-          serverClients[i].println("  \r\n");
+          telnetclient.println("  \r\n");
         }
         switch (telnetscreen) {
           case ts_telemetrie:
               if (newdata) {
-                serverClients[i].printf("\r\nBLE\r\n Throttle: %03d Brake %03d\r\n",bleparsed->throttle,bleparsed->brake);
+                telnetclient.printf("\r\nBLE\r\n Throttle: %03d Brake %03d\r\n",bleparsed->throttle,bleparsed->brake);
                 sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
-                serverClients[i].printf("\r\n\r\nBMS Serial: %s Version: %x.%x.%x\r\n", tmp1,bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
-                serverClients[i].printf(" Capacity Total: %5d mAh Remaining %5d mAh Percent %03d%%\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent);
-                serverClients[i].printf(" Temperature1 %3d°C Temperature2 %3d°C Health %05d\r\n",bmsparsed->temperature[1]-20, bmsparsed->temperature[0]-20, bmsparsed->health);
-                serverClients[i].printf(" Production Date: %d-%d-%d ",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
-                serverClients[i].printf(" Charging Cycles: %d Charging Times: %d\r\n",bmsparsed->cycles,bmsparsed->chargingtimes);
-                serverClients[i].printf(" Voltage: %2.2f V Current %05d mA\r\n",(float)bmsparsed->voltage/100.0f, bmsparsed->current);
-                serverClients[i].printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage/100.0f);
+                telnetclient.printf("\r\n\r\nBMS Serial: %s Version: %x.%x.%x\r\n", tmp1,bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
+                telnetclient.printf(" Capacity Total: %5d mAh Remaining %5d mAh Percent %03d%%\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent);
+                telnetclient.printf(" Temperature1 %3d°C Temperature2 %3d°C Health %05d\r\n",bmsparsed->temperature[1]-20, bmsparsed->temperature[0]-20, bmsparsed->health);
+                telnetclient.printf(" Production Date: %d-%d-%d ",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
+                telnetclient.printf(" Charging Cycles: %d Charging Times: %d\r\n",bmsparsed->cycles,bmsparsed->chargingtimes);
+                telnetclient.printf(" Voltage: %2.2f V Current %05d mA\r\n",(float)bmsparsed->voltage/100.0f, bmsparsed->current);
+                telnetclient.printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage/100.0f);
                 sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
-                serverClients[i].printf("\r\n\r\nESC Serial: %s Version: %05d", tmp1,escparsed->fwversion);
+                telnetclient.printf("\r\n\r\nESC Serial: %s Version: %x.%x.%x\r\n", tmp1,escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
                 sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
-                serverClients[i].printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
-                serverClients[i].printf(" Distance Total: %05d Trip: %05d Remaining %05d", escparsed->totaldistance,escparsed->tripdistance,escparsed->remainingdistance);
-                serverClients[i].printf(" Trip Time: %05d\r\n",escparsed->triptime);
-                serverClients[i].printf(" FrameTemp1: %05d FrameTemp2: %05d\r\n", escparsed->frametemp1, escparsed->frametemp2);
-                serverClients[i].printf(" Speed: %05d Avg: %05d\r\n", escparsed->speed, escparsed->averagespeed);
-                serverClients[i].printf(" Batt Percent: %05d\r\n",escparsed->battpercent);
-                serverClients[i].printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
-                serverClients[i].printf("\r\nX1 Mode %03d LEDs %03d Light %03d BeepAction %03d\r\n",x1parsed->mode, x1parsed->battleds, x1parsed->light, x1parsed->beepaction);
+                telnetclient.printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
+                telnetclient.printf(" Distance Total: %.2f km Trip: %.2f km Remaining %.2f km", (float)escparsed->totaldistance/100.0f,(float)escparsed->tripdistance/100.0f,(float)escparsed->remainingdistance/100.0f);
+                telnetclient.printf(" Trip Time: %d seconds\r\n",escparsed->triptime);
+                telnetclient.printf(" FrameTemp1: %05d FrameTemp2: %05d\r\n", escparsed->frametemp1, escparsed->frametemp2);
+                telnetclient.printf(" Speed: %05d m/s Avg: %05d m/s\r\n", escparsed->speed, escparsed->averagespeed);
+                telnetclient.printf(" Batt Percent: %3d%%\r\n",escparsed->battpercent);
+                telnetclient.printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
+                telnetclient.printf("\r\n\r\nX1 Mode %03d LEDs %03d Light %03d BeepAction %03d\r\n",x1parsed->mode, x1parsed->battleds, x1parsed->light, x1parsed->beepaction);
 
 
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;
             break;
           case ts_statistics:
-              serverClients[i].printf("Packets Received: %05d\r\nPackets CRC OK: %05d\r\nPackets CRC FAIL: %05d\r\n\r\nPackets per device Address:\r\n", packets_rec,packets_crcok,packets_crcfail);
+              telnetclient.printf("Packets Received: %05d\r\nPackets CRC OK: %05d\r\nPackets CRC FAIL: %05d\r\n\r\nPackets per device Address:\r\n", packets_rec,packets_crcok,packets_crcfail);
               //for(i = 0; i < MAX_SRV_CLIENTS; i++){
               k = 0;
               for(uint16_t j = 0; j <=255; j++) {
                 if (packetsperaddress[j]>=1) {
                   k++;
-                  serverClients[i].printf("%02X -> %05d  ", j, packetsperaddress[j]);
-                  if ((k % 5)==0) { serverClients[i].println(""); }
+                  telnetclient.printf("%02X -> %05d  ", j, packetsperaddress[j]);
+                  if ((k % 5)==0) { telnetclient.println(""); }
                 }
               }
               //ServerClients[i].print 
               telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;           
             break;
           case ts_esc_raw:
-              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
+              telnetclient.println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
-                    serverClients[i].printf("\r\n%03X: ",j); 
+                    telnetclient.printf("\r\n%03X: ",j); 
                   } else {
                     if ((j % 4)==0) { 
-                      serverClients[i].print("- "); 
+                      telnetclient.print("- "); 
                     }
                   } //mod32
-                  serverClients[i].printf("%02X ", escdata[j]);
+                  telnetclient.printf("%02X ", escdata[j]);
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshrawarrayscreen;
             break;
           case ts_ble_raw:
-              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
+              telnetclient.println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
-                    serverClients[i].printf("\r\n%03X: ",j); 
+                    telnetclient.printf("\r\n%03X: ",j); 
                   } else {
                     if ((j % 4)==0) { 
-                      serverClients[i].print("- "); 
+                      telnetclient.print("- "); 
                     }
                   } //mod32
-                  serverClients[i].printf("%02X ", bledata[j]);
+                  telnetclient.printf("%02X ", bledata[j]);
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshrawarrayscreen;
             break;
           case ts_bms_raw:
-              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
+              telnetclient.println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
-                    serverClients[i].printf("\r\n%03X: ",j); 
+                    telnetclient.printf("\r\n%03X: ",j); 
                   } else {
                     if ((j % 4)==0) { 
-                      serverClients[i].print("- "); 
+                      telnetclient.print("- "); 
                     }
                   } //mod32
-                  serverClients[i].printf("%02X ", bmsdata[j]);
+                  telnetclient.printf("%02X ", bmsdata[j]);
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshrawarrayscreen;
             break;
           case ts_x1_raw:
-              serverClients[i].println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
+              telnetclient.println("     00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   10 11 12 13   14 15 16 17   18 19 1A 1B   1C 1D 1E 1F");
               for(uint16_t j = 0; j<=511; j++) {
                   if ((j % 32)==0) { 
-                    serverClients[i].printf("\r\n%03X: ",j); 
+                    telnetclient.printf("\r\n%03X: ",j); 
                   } else {
                     if ((j % 4)==0) { 
-                      serverClients[i].print("- "); 
+                      telnetclient.print("- "); 
                     }
                   } //mod32
-                  serverClients[i].printf("%02X ", x1data[j]);
+                  telnetclient.printf("%02X ", x1data[j]);
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshrawarrayscreen;
             break;
@@ -666,14 +679,14 @@ void telnet_refreshscreen() {
           case ts_ble_array:
           case ts_bms_array:
           case ts_x1_array:
-              serverClients[i].print("empty screen - not implemented");
+              telnetclient.print("empty screen - not implemented");
               telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;
               
             break;
         }
         yield();
     }
-  } //i 0 to maxclients
+  //} //i 0 to maxclients
 }
 
 void handle_telnet() {
@@ -682,53 +695,76 @@ void handle_telnet() {
     case telnetoff:
       break;
     case telnetturnon:
-        server.begin();
-        server.setNoDelay(true);
+        telnetserver.begin();
+        telnetserver.setNoDelay(true);
+#ifdef userawserver
+        rawserver.begin();
+        rawserver.setNoDelay(true);
+#endif        
         Serial.print("### Telnetserver @ ");
         if (wlanstate==wlanap) {
           Serial.print(WiFi.softAPIP());  
         } else {
           Serial.print(WiFi.localIP());  
         }
-        Serial.println(":23");
+        Serial.println(":36523, RAW Serial Bus Data @ 36524");
         telnetstate = telnetlistening;
         userconnecttimestamp = millis()+userconnecttimeout;  
       break;
     case telnetlistening: 
-            if (server.hasClient()) {
-              for(i = 0; i < MAX_SRV_CLIENTS; i++){
+            if (telnetserver.hasClient()) {
+              //for(i = 0; i < MAX_SRV_CLIENTS; i++){
                 //find free/disconnected spot
-                if (!serverClients[i] || !serverClients[i].connected()){
-                  if(serverClients[i]) serverClients[i].stop();
-                  serverClients[i] = server.available();
-                  if (!serverClients[i]) Serial.println("available broken");
+                if (!telnetclient || !telnetclient.connected()){
+                  if(telnetclient) telnetclient.stop();
+                  telnetclient = telnetserver.available();
+                  if (!telnetclient) Serial.println("available broken");
                   Serial.print("### Telnet New client: ");
                   Serial.print(i); Serial.print(' ');
-                  Serial.println(serverClients[i].remoteIP());
+                  Serial.println(telnetclient.remoteIP());
                   telnetstate = telnetclientconnected;
                   ledontime=250; ledofftime=250; ledcurrenttime = millis();
                   telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;
                   break;
                 }
+            //}
+            /*if (i >= MAX_SRV_CLIENTS) {
+              //no free/disconnected spot so reject
+              telnetserver.available().stop();
+              Serial.println("### Telnet rejected connection (max Clients)");
+            }*/
+          }
+#ifdef userawserver
+          if (rawserver.hasClient()) {
+            //for(i = 0; i < MAX_SRV_CLIENTS; i++){
+              //find free/disconnected spot
+              if (!rawclient || !rawclient.connected()){
+                if(rawclient) rawclient.stop();
+                rawclient = rawserver.available();
+                if (!rawclient) Serial.println("available broken");
+                Serial.print("### Telnet RAW New client: ");
+                Serial.println(rawclient.remoteIP());
+                telnetstate = telnetclientconnected;
+                ledontime=250; ledofftime=250; ledcurrenttime = millis();
+                //telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;
+                //break;
               }
-              if (i >= MAX_SRV_CLIENTS) {
-                //no free/disconnected spot so reject
-                server.available().stop();
-                Serial.println("### Telnet rejected connection (max Clients)");
-              }
-            }
-            if (userconnecttimestamp<millis()) {
-              telnetstate = telnetturnoff;
-            }
+            //}
+          }
+#endif
+          if (userconnecttimestamp<millis()) {
+            telnetstate = telnetturnoff;
+          }
       break;
     case telnetclientconnected: 
         //TODO check if clients are still connected... else start client connect timer and fall back to listening mode
         hc = false;
-        for(i = 0; i < MAX_SRV_CLIENTS; i++){
-                  if (serverClients[i] && serverClients[i].connected()){
-                      hc=true;
-                  }
-              } //i 0 to maxclients
+        //for(i = 0; i < MAX_SRV_CLIENTS; i++){
+          if (telnetclient && telnetclient.connected()) { hc=true; }
+        //} //i 0 to maxclients
+#ifdef userawserver
+        if (rawclient && rawclient.connected()) { hc=true; }
+#endif
         if (!hc) {
           //no more clients, restart listening timer....
           telnetstate = telnetturnon;
@@ -740,43 +776,53 @@ void handle_telnet() {
             } //telnetrefreshtimer
 
         } //else !hc
-          //check clients for data
-          for(i = 0; i < MAX_SRV_CLIENTS; i++){
-            if (serverClients[i] && serverClients[i].connected()){
-              if(serverClients[i].available()){
-                //get data from the telnet client and push it to the UART
-                uint8_t tcmd = serverClients[i].read();
-                Serial.printf("Telnet Command: %02X\r\n",tcmd);
-                switch (tcmd) {
-                  case 0x73: telnetscreen=ts_statistics; break; //s
-                  case 0x74: telnetscreen=ts_telemetrie; break; //t
-                  case 0x65: telnetscreen=ts_esc_raw; break; //e
-                  case 0x62: telnetscreen=ts_bms_raw; break; //b
-                  case 0x6E: telnetscreen=ts_ble_raw; break; //n
-                  case 0x78: telnetscreen=ts_x1_raw; break; //x
-                  case 0x45: telnetscreen=ts_esc_array; break; //E
-                  case 0x42: telnetscreen=ts_bms_array; break; //B
-                  case 0x4E: telnetscreen=ts_ble_array; break; //N
-                  case 0x58: telnetscreen=ts_x1_array; break;  //X
-                  case 0x72: reset_statistics(); break;  //r
-                } //switch
-                //while(serverClients[i].available()) Serial1.write(serverClients[i].read());
-              } //serverclients available
-            } //if connected
-          }  //for i
+        //check clients for data
+        //for(i = 0; i < MAX_SRV_CLIENTS; i++){
+          if (telnetclient && telnetclient.connected()){
+            if(telnetclient.available()){
+              //get data from the telnet client and push it to the UART
+              uint8_t tcmd = telnetclient.read();
+              Serial.printf("Telnet Command: %02X\r\n",tcmd);
+              switch (tcmd) {
+                case 0x73: telnetscreen=ts_statistics; break; //s
+                case 0x74: telnetscreen=ts_telemetrie; break; //t
+                case 0x65: telnetscreen=ts_esc_raw; break; //e
+                case 0x62: telnetscreen=ts_bms_raw; break; //b
+                case 0x6E: telnetscreen=ts_ble_raw; break; //n
+                case 0x78: telnetscreen=ts_x1_raw; break; //x
+                case 0x45: telnetscreen=ts_esc_array; break; //E
+                case 0x42: telnetscreen=ts_bms_array; break; //B
+                case 0x4E: telnetscreen=ts_ble_array; break; //N
+                case 0x58: telnetscreen=ts_x1_array; break;  //X
+                case 0x72: reset_statistics(); break;  //r
+              } //switch
+              //while(serverClients[i].available()) Serial1.write(serverClients[i].read());
+            } //serverclients available
+          } //if connected
+        //}  //for i
+#ifdef userawserver        
+        //TODO: Check RAW Client for Data and send to bus? immediately send or queue and send in next free timeslot?
+#endif        
       break;
     case telnetdisconnectclients:
-        for(i = 0; i < MAX_SRV_CLIENTS; i++) {
-          if (serverClients[i]) serverClients[i].stop();
-        }
+        //for(i = 0; i < MAX_SRV_CLIENTS; i++) {
+          if (telnetclient) telnetclient.stop();
+        //}
+#ifdef userawserver
+        if (rawclient) rawclient.stop();
+#endif        
         telnetstate = telnetturnoff;
       break;
     case telnetturnoff:
-        server.end();
+        telnetserver.end();
+#ifdef userawserver
+        rawserver.end();
+#endif      
         wlanstate=wlanturnoff; 
       break;
    } //switch (telnetstate)
 } //handle_telnet
+#endif //usetelnetserver
 
 void WiFiEvent(WiFiEvent_t event) {
     //Serial.printf("[WiFi-event] event: %d\n", event);
@@ -827,6 +873,7 @@ void handle_wlan() {
         yield();
         //IPAddress myIP = WiFi.softAPIP();
         Serial.printf("### WLAN AP\r\nSSID: %s, AP IP address: ", apssid);  Serial.println( WiFi.softAPIP());
+#ifdef useoled1
         display.fillRect(0,56,display.width(), 8, BLACK);
         display.setCursor(0,56);
         display.print("AP Mode");
@@ -834,9 +881,12 @@ void handle_wlan() {
         display.setCursor(0,40);
         display.print( WiFi.softAPIP());
         display.display();
+#endif        
+#ifdef usetelnetserver
         if (telnetstate==telnetoff) {
           telnetstate = telnetturnon;
         }
+#endif        
         wlanconnecttimestamp = millis()+wlanapconnecttimeout;            
         wlanstate = wlanap;
         ArduinoOTA.begin();
@@ -855,10 +905,12 @@ void handle_wlan() {
         WiFi.onEvent(WiFiEvent);
         WiFi.begin(ssid1, password1);
         wlanconnecttimestamp = millis()+wlanconnecttimeout;
+#ifdef useoled1
         display.fillRect(0,56,display.width(), 8, BLACK);
         display.setCursor(0,56);
         display.printf("W %d",currentssidindex);
         display.display();  
+#endif        
         Serial.printf("###  WLan searching for ssidindex %d\r\n",currentssidindex);
         wlanstate = wlansearching;
         ledontime=50; ledofftime=450; ledcurrenttime = millis();
@@ -873,10 +925,12 @@ void handle_wlan() {
               if (currentssidindex==1) { WiFi.begin(ssid2, password2); }
               if (currentssidindex==2) { WiFi.begin(ssid3, password3); }
               wlanconnecttimestamp = millis()+wlanconnecttimeout;
+#ifdef useoled1
               display.fillRect(0,56,display.width(), 8, BLACK);
               display.setCursor(0,56);
               display.printf("W %d",currentssidindex);
               display.display();
+#endif              
               Serial.printf("### WLan searching for ssidindex %d\r\n",currentssidindex);
             } else {
               Serial.println("### WLAN search failed, starting Access Point");
@@ -889,6 +943,7 @@ void handle_wlan() {
           Serial.print(WiFi.SSID());
           Serial.print(", IP is ");
           Serial.println(WiFi.localIP());
+#ifdef useoled1          
           display.fillRect(0,56,display.width(), 8, BLACK);
           display.setCursor(0,56);
           display.print("WC ");
@@ -897,9 +952,12 @@ void handle_wlan() {
           display.setCursor(0,40);
           display.print(WiFi.localIP());
           display.display();
+#endif          
+#ifdef usetelnetserver
           if (telnetstate==telnetoff) {
                 telnetstate = telnetturnon;
             }
+#endif            
           ledontime=500; ledofftime=500; ledcurrenttime = millis();
           ArduinoOTA.begin();
         }
@@ -907,14 +965,18 @@ void handle_wlan() {
     case wlanconnected:
           if (WiFi.status() != WL_CONNECTED) {
               Serial.println("### WiFi lost connection!");
+#ifdef useoled1
               display.fillRect(0,56,display.width(), 8, BLACK);
               display.setCursor(0,56);
               display.print("W CONN LOST");
               display.print(WiFi.SSID());
               display.display();
+#endif
+#ifdef usetelnetserver
               if (telnetstate!=telnetoff) {
                   telnetstate = telnetdisconnectclients;
               }
+#endif
              wlanstate = wlanturnoff;
           }
       break;
@@ -924,10 +986,12 @@ void handle_wlan() {
           //num of connect clients changed
           apnumclientsconnectedlast = apnumclientsconnected;
           Serial.printf("### AP Clients connected changed: %d -> %d\r\n",apnumclientsconnectedlast, apnumclientsconnected);
+#ifdef useoled1
           display.fillRect(0,56,display.width(), 8, BLACK);
           display.setCursor(0,56);
           display.printf("AP Clients %d",apnumclientsconnected);
           display.display();
+#endif          
           if (apnumclientsconnected==0) {
               //no one connnected, but there was someone connected.... restart timeout
               wlanconnecttimestamp = millis()+wlanapconnecttimeout;
@@ -946,16 +1010,25 @@ void handle_wlan() {
           client.disconnect();
         }        
 #endif
+#ifdef usetelnetserver
+        if (telnetclient) telnetclient.stop();
+#endif
+#ifdef userawserver
+        if (rawclient) rawclient.stop();
+#endif
+
         ArduinoOTA.end();
         WiFi.softAPdisconnect();
         WiFi.disconnect();
         WiFi.mode(WIFI_OFF);
         Serial.println("### WIFI OFF");
+#ifdef useoled1        
         display.fillRect(0,56,display.width(), 8, BLACK);
         display.setCursor(0,56);
         display.print("WLAN OFF");
         display.fillRect(0,40,display.width(), 8, BLACK);
         display.display();
+#endif
         wlanstate=wlanoff; 
         //STOP OTA    
       break;
@@ -963,16 +1036,18 @@ void handle_wlan() {
 } //handle_wlan
 
 
-#ifdef debug_dump_states
+#ifdef debug_dump_states //dump state machine states to Serial Port on change
   void print_states() {
     if (wlanstate!=wlanstateold) {
       Serial.printf("### WLANSTATE %d -> %d\r\n",wlanstateold,wlanstate);
       wlanstateold=wlanstate;
     }
+#ifdef usetelnetserver    
     if (telnetstate!=telnetstateold) {
       Serial.printf("### TELNETSTATE %d -> %d\r\n",telnetstateold,telnetstate);
       telnetstateold=telnetstate;
     }
+#endif    
     if (m365receiverstate!=m365receiverstateold) {
       Serial.printf("### M365RecState: %d -> %d\r\n",m365receiverstateold,m365receiverstate);
       m365receiverstateold=m365receiverstate;
@@ -985,6 +1060,7 @@ void handle_wlan() {
 #endif
 
 void setup() {
+#ifdef useoled1
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin,sclpin);
   //display.setRotation(0); rotation 0-3 for 0, 90, 180, 270 degree cw
   display.clearDisplay();
@@ -995,6 +1071,7 @@ void setup() {
   display.setCursor(0,0);
   display.println(swversion);
   display.display();
+#endif
   pinMode(led,OUTPUT);
   digitalWrite(led,LOW);
   Serial.begin(115200);
@@ -1022,13 +1099,14 @@ void setup() {
       client.publish(tmp1, "OTA Starting");
     }
 #endif
-    //display.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin,sclpin);
+#ifdef useoled1
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(WHITE);
     display.setCursor(0,0);
     display.println("OTA Start");
     display.display();
+#endif
   });
   ArduinoOTA.onEnd([]() {
     Serial.println("\nOTA End");
@@ -1038,21 +1116,25 @@ void setup() {
       client.publish(tmp1, "OTA Done");
     }
 #endif
+#ifdef useoled1
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(WHITE);
     display.setCursor(0,0);
     display.println("OTA End");
     display.display();
+#endif
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     Serial.printf("OTA %u%%\r", (progress / (total / 100)));
+#ifdef useoled1
     display.clearDisplay();
     display.setTextSize(3);
     display.setTextColor(WHITE);
     display.setCursor(0,0);
     display.printf("OTA %u%%", (progress / (total / 100)));
     display.display();
+#endif
   });
   ArduinoOTA.onError([](ota_error_t error) {
     if (error == OTA_AUTH_ERROR) sprintf(tmp1,"%s","Auth Failed");
@@ -1066,15 +1148,18 @@ void setup() {
     if (client.connected()) {
       sprintf(tmp1, "n/%d/OTAError", mqtt_clientID);
       client.publish(tmp1, tmp2);
+      yield(); //give wifi/mqtt a chance to send before reboot
     }
 #endif
+#ifdef useoled1
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
     display.setCursor(0,0);
     display.printf("OTA ERROR: %u %s", error,tmp1);
     display.display();
-    delay(2000);
+    delay(2000); //give user a chance to read before reboot
+#endif    
   });
   ArduinoOTA.setPassword(OTApwd);
   sprintf(tmp2, "es-m36-%s",mac);
@@ -1095,7 +1180,9 @@ void handle_led() {
 
 void loop() {
   handle_wlan();
+#ifdef usetelnetserver
   handle_telnet();
+#endif  
   m365_receiver(); 
   m365_handlepacket();
   #ifdef debug_dump_states
@@ -1104,6 +1191,9 @@ void loop() {
   //m365_detectapp(); //detect if smartphone is connected and requests data, so we stay quiet
   //m365_requestor();
   handle_led();
+#ifdef useoled1
+  //handle_oled();
+#endif  
 #ifdef usemqtt
   client.loop();
 #endif
