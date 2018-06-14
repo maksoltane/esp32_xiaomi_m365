@@ -7,14 +7,12 @@ references used:
 
 /*next steps:
 - fix missing crlf in serial debug
-- add 36524 for raw data dump
-- verify ESC structs/data/display
-	-> decoder finished, start with requestor
+- decoder finished, start with requestor
+- request complete eeprom array, check for new, unknown data/variables
 
 //FIX: WIFI OFF Prints all the time.... :(
 
 /*TODO: 
-    rename telnet stuff to clientservices or similar and add http
     OLED screen with current WATT
 */
 
@@ -37,7 +35,7 @@ references used:
  *  Adafruit_SSD1306.cpp:27 - #if !defined(__ARM_ARCH) && !defined(ENERGIA) && !defined(ESP8266) && !defined(ESP32)
  */
 
-#define swversion "ESP32 M365 OLED\r\nv20180611"
+#define swversion "ESP32 M365 OLED\r\nv20180614"
 
 //functional modules
   #define useoled1 //comment out to disable oled functionality
@@ -252,13 +250,14 @@ references used:
     uint8_t fwversion[2]; //offset 0x34-035,  e.g. 0x133 = 1.3.3
     uint16_t u2[10]; //offset 0x36-0x49
     uint16_t remainingdistance; //offset 0x4a-0x4B e.g. 123 = 1.23km
-    uint16_t u3[14]; //offset 0x4C-0x75
+    uint16_t u3[20]; //offset 0x4C-0x73
+    uint16_t ontime1; //offset 0x74-0x75 power on time in seconds
     uint16_t triptime; //offset 0x76-0x77 trip time in seconds
-    uint16_t u4[2]; //offset 0x4C-0x75
+    uint16_t u4[2]; //offset 0x78-0x7C
     uint16_t frametemp1; //offset 0x7C-0x7D /10 = temp in °C
-    uint16_t u5[36]; //offset 0x7e-0xe9
+    uint16_t u5[54]; //offset 0x7e-0xe9
     uint16_t ecomode; //offset 0xEA-0xEB; on=1, off=0
-    uint16_t u6[10]; //offset 0xec-0xf5
+    uint16_t u6[5]; //offset 0xec-0xf5
     uint16_t kers; //offset 0xf6-0xf7; 0 = weak, 1= medium, 2=strong
     uint16_t cruisemode; //offset 0xf8-0xf9, off 0, on 1
     uint16_t taillight; //offset 0xfa-0xfb, off 0, on 2
@@ -266,11 +265,11 @@ references used:
     uint16_t error; //offset 0x160-0x161
     uint16_t u8[3]; //offset 0x162-0x167
     uint16_t battpercent; //offset 0x168-0x169
-    uint16_t speed; //0x16A-0x16B meter per second?
-    uint16_t averagespeed; //0x16C-0x16D meter per second?
-    uint32_t totaldistance; //0x16e-0x171
+    int16_t speed; //0x16A-0x16B /1000 in km/h, negative value = backwards...
+    uint16_t averagespeed; //0x16C-0x16D /1000 in km/h?
+    uint32_t totaldistance; //0x16e-0x171 /1000 in km
     uint16_t tripdistance; //0x172-0x173
-    uint16_t u9[1]; //offset 0x174-0x175 
+    uint16_t ontime2; //offset 0x174-0x175 power on time 2 in seconds
     uint16_t frametemp2; //0x176-0x177 /10 = temp in °C
     uint16_t u10[68]; //offset 0x178-0x200 
   }__attribute__((packed))   escstruct;
@@ -593,14 +592,19 @@ void telnet_refreshscreen() {
                 telnetclient.printf("\r\n\r\nESC Serial: %s Version: %x.%x.%x\r\n", tmp1,escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
                 sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
                 telnetclient.printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
-                telnetclient.printf(" Distance Total: %.2f km Trip: %.2f km Remaining %.2f km", (float)escparsed->totaldistance/100.0f,(float)escparsed->tripdistance/100.0f,(float)escparsed->remainingdistance/100.0f);
-                telnetclient.printf(" Trip Time: %d seconds\r\n",escparsed->triptime);
-                telnetclient.printf(" FrameTemp1: %05d FrameTemp2: %05d\r\n", escparsed->frametemp1, escparsed->frametemp2);
-                telnetclient.printf(" Speed: %05d m/s Avg: %05d m/s\r\n", escparsed->speed, escparsed->averagespeed);
+                telnetclient.printf(" Distance Total: %.2f km Trip: %.2f km Remaining %.2f km\r\n", (float)escparsed->totaldistance/1000.0f,(float)escparsed->tripdistance/100.0f,(float)escparsed->remainingdistance/100.0f);
+                telnetclient.printf(" Power On Time1: %d s, Power On Time1: %d s, Trip Time: %d s\r\n",escparsed->ontime1,escparsed->ontime2,escparsed->triptime);
+                telnetclient.printf(" FrameTemp1: %05d FrameTemp2: %.1f °C\r\n", (float)escparsed->frametemp1/10.0f, (float)escparsed->frametemp2/10.0f);
+                telnetclient.printf(" Speed: %.2f km/h Avg: %.2f km/h\r\n", (float)escparsed->speed/1000.0f, (float)escparsed->averagespeed/1000.0f);
                 telnetclient.printf(" Batt Percent: %3d%%\r\n",escparsed->battpercent);
                 telnetclient.printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
-                telnetclient.printf("\r\n\r\nX1 Mode %03d LEDs %03d Light %03d BeepAction %03d\r\n",x1parsed->mode, x1parsed->battleds, x1parsed->light, x1parsed->beepaction);
-
+                telnetclient.printf("\r\n\r\nX1 Mode %03d LEDs %03d Light ",x1parsed->mode, x1parsed->battleds);
+                if (x1parsed->light==0) { telnetclient.print("OFF "); } else {
+                  if (x1parsed->light==100) { telnetclient.print("ON "); } else {
+                   telnetclient.print("    ");
+                  }
+                }
+                telnetclient.printf("%03d BeepAction %03d\r\n", x1parsed->light, x1parsed->beepaction);
 
               }
               telnetlastrefreshtimestamp=millis()+telnetrefreshanyscreen;

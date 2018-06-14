@@ -27,6 +27,7 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
  - advanced thief/lock protection
  - advanced trip computer (which keeps trip-totals/averages between 2 charge cycles or 2 times with the same available SSID (leaving/coming home)
  - MQTT Logging of Trip-Summary Data
+ - Navigation Arrow Display e.g. with Komoot (https://github.com/komoot/BLEConnect)
  
 # Telnet Interface
  - Telemetrie Screen shows decoded known values: Batt Voltage, Current, Speed,... 
