@@ -1,7 +1,7 @@
 # esp32_xiaomi_m365
 Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressif ESP32 / ESP8266
 
-# Working
+# Done
 - WiFi Auto Connect to known SSIDs or AP-Mode & Telnet with Timeouts to auto-turnoff Telnet/WiFi
 - Firmwareupdates (of ESP Device, not the scooter) over WiFi
 - Telnet on Port 36523 with different Screens
@@ -9,20 +9,20 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - M365 Serial Receiver and Packet decoder into Array per Address
 - Decoder of BMS Data Array to Variable Values/Telemetrie Screen verified against known apps
 - Decoder of ESC Data Array to Variable Values/Telemetrie Screen verified against known apps
-
-# Implemented/not testet with scooter ason vacation 
-- Data Requestor with patch in esp-idf driver for earlier interrupt trigger to be able to send requests fast enough
-- Display with Timeout/Single Speed/Voltage/Current/Watt/Batt-Percent Screen
+- Data Requestor
+- Subscription to interesting data fields needed for client-app (e.g. OLED Display)
+- Basic screens (nicer layout to follow) for drive/stall/charging
 - Added Loop-Timers and Counters for debugging Receiver/Requestor & Oled-Draw/Transfer Durations
-
+- OLED Shows LED/Light Status (to recognize accidental switched on Light @ noon while switching normal/eco mode)
 
 # Todos
- - add newdata-bitarray for each address to indicate updated data
+ - fix - data-requestor timing currently causes ~10% crc errors on m365 bus
+ - fix - wlan-search is blocking display on startup
+ - split newdata flag into esc/bms newdata flags and use in decision if (time-costly) oled-updates are needed
  - Test on ESP8266
  - OLED: 
    - Add more data screens
    - Add Popup Messages for Events (e.g. Scooter Error, Temp, BMS CellVoltage variations > treshold, WLAN/BLE On/Off, Client Connected,...)
-   - Add logic to switch between screens (e.g. depending on speed)
  - Add Status/Infoscreen Navigation using Throttle
  - Menu
    - Add Menu-Navigation using Throttle/Break
@@ -34,7 +34,6 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 
 # Todos 2 - Ideas & Visions:
  - add Scooter-Flashing Protection (so no one can flash broken firmware to your scooter while waiting at a red traffic light
- - add icon for light on/off (to prevent mistakenly switched on lights when changing normal/eco mode)
  - advanced trip computer (which keeps trip-totals/averages between 2 charge cycles or 2 times with the same available SSID (leaving/coming home)
  - MQTT Logging of Trip-Summary Data
  - Navigation Arrow Display e.g. with Komoot (https://github.com/komoot/BLEConnect)
