@@ -84,6 +84,8 @@ references used:
   boolean updatescreens = false;
   #define oledrefreshanyscreen 200 //refresh oled screen every xx ms (if there is new data)
   unsigned long olednextrefreshtimestamp = 0;
+  unsigned long timeout_oled = 0;
+  #define oledchargestarttimeout 1000 //show cell info screen on start of charging
 #endif
 
 //WLAN
@@ -361,7 +363,9 @@ references used:
     uint16_t Cell8Voltage; //offset 0x8E-0x8F
     uint16_t Cell9Voltage; //offset 0x90-0x91
     uint16_t Cell10Voltage; //offset 0x92-0x93
-    //uint16_t u6[182]; //offset 0x94-0x
+    uint16_t Cell11Voltage; //offset 0x94-0x95 not stock, custom bms with 12S battery, 0 if not connected
+    uint16_t Cell12Voltage; //offset 0x96-0x97 not stock, custom bms with 12S battery, 0 if not connected
+    //uint16_t u6[178]; //offset 0x98-0x
   }__attribute__((packed))  bmsstruct;
 
   uint8_t bledata[512];
@@ -424,6 +428,7 @@ references used:
   };
 */
 //oled normal/drive mode:
+
 #define requestmax 4
   uint8_t requests[requestmax][3]= {
       { address_bms, 0x31, 0x0A}, //remaining cap & percent, current, voltage, temperature
@@ -431,6 +436,7 @@ references used:
       { address_esc, 0x3A, 0x0A}, //ontime, triptime, frametemp1
       { address_esc, 0xB0, 0x20} //error, battpercent,speed,averagespeed,totaldistance,tripdistance,ontime2,frametemp2
   };
+
 /*
 //additional infos:
   uint8_t requests[requestmax][3]= {
@@ -445,7 +451,7 @@ references used:
     */
   /*
   //read entire 0xff words from esc and bms
-  #define requestmax 8
+  #define requestmax 16
   uint8_t requests[requestmax][3]= {
       { address_bms, 0x00, 0x20},
       { address_bms, 0x20, 0x20},
@@ -490,6 +496,9 @@ references used:
   unsigned long duration_telnet=0;
   unsigned long timestamp_telnetstart=0;
 
+
+  #define _max(a,b) ((a)>(b)?(a):(b))
+  #define _min(a,b) ((a)<(b)?(a):(b))
 
 void reset_statistics() {
   packets_rec=0;
@@ -1379,34 +1388,56 @@ void handle_led() {
 }
 
 uint8_t oledstate = 0;
-#define oledstartup 0
+#define oleddefault 0
 #define oledm365error 1
 #define oledtimeout 2
+#define oledchargestart 3
+#define oledcharging 4
+#define oledchargeend 5
+#define oledcells 6
+
 
 void oled_switchscreens() {
   if ((m365packettimestamp+m365packettimeout)<millis() & oledstate!=oledtimeout) {
-    oledstate = oledtimeout;
-    updatescreens = true;
+    oledstate=oledtimeout;
+    updatescreens=true;
     return;
   }
   if ((oledstate==oledtimeout) & ((m365packettimestamp+m365packettimeout)>millis())) { 
-    oledstate=oledstartup;
-    updatescreens = true; 
+    oledstate=oleddefault;
+    updatescreens=true; 
   }
   if (newdata & (olednextrefreshtimestamp<millis())) { 
     updatescreens=true;
     newdata=false; 
   }
-
-
+  if (newdata & (escparsed->speed==0) & (bmsparsed->current<0) & ((oledstate!=oledchargestart)&(oledstate!=oledcharging)&(oledstate!=oledchargeend))) { 
+    oledstate=oledchargestart; 
+    timeout_oled=millis()+oledchargestarttimeout;
+    updatescreens=true;
+  }
+  if ((oledstate==oledchargestart) & (millis()>timeout_oled)) { 
+    oledstate=oledcharging; 
+    updatescreens=true;
+  }
+  if ((oledstate==oledcharging) & (bmsparsed->current>=0)) { 
+    oledstate=oledchargeend; 
+    updatescreens=true;
+  }
+  if (((oledstate==oledchargestart)|(oledstate==oledcharging)|(oledstate==oledchargeend)) & (escparsed->speed>0)) { 
+    oledstate=oleddefault; 
+    updatescreens=true;
+  }
 } //oled_switchscreens
 
 void oled_updatescreens() {
+  uint16_t lowest=10000;
+  uint16_t highest=0;
   timestamp_oleddraw=micros();
   olednextrefreshtimestamp=millis()+oledrefreshanyscreen;
+  display.clearDisplay();
   switch (oledstate) {
-    case oledstartup:
-        display.clearDisplay();
+    case oleddefault:
         display.setCursor(0,fontbigbaselinezero);
         display.setFont(&fontbig);
         display.setTextColor(WHITE);
@@ -1416,7 +1447,7 @@ void oled_updatescreens() {
         display.setTextColor(WHITE);
         display.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/1000.0f);
         display.setCursor(0,fontsmallbaselinezero+fontbigheight+fontsmallheight);
-        display.printf("%5.0fW   %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/1000.0f),bmsparsed->remainingpercent);
+        display.printf("%5.0fW   %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
         /*display.print()
         display.setFont();
         display.setTextSize(0);
@@ -1424,12 +1455,53 @@ void oled_updatescreens() {
         display.setCursor(0,0);
         display.printf("%3.1f km/h\r\n%.2f Volt\r\n%.1f A\r\nBatt %d %%", (float)escparsed->speed/1000.0f,(float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/1000.0f,bmsparsed->remainingpercent);
         */
-        duration_oleddraw = micros()-timestamp_oleddraw;
-        timestamp_oledi2c=micros();
-        display.display();
-        duration_oledi2c = micros()-timestamp_oledi2c;
       break;
-    case oledm365error:
+    case oledcharging: //TODO: "CHARGE", Voltage, charge current mah remaining, % remaining
+        display.setFont();
+        display.setTextColor(WHITE);
+        display.setCursor(0,0);
+        display.print("CHARGING\r\n");
+        display.printf("%4.1fV %4.1fA\r\n", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/100.0f);
+        display.printf("%5.0fW   %3d%%\r\n",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
+        display.printf("%d mAH\r\n",bmsparsed->remainingcapacity);
+        //add: Cell highest/lowest/difference
+        //add battery health
+      break;
+    case oledchargestart:
+    case oledchargeend:
+    case oledcells: //TotalVoltage, Lowest & Highest Cell Voltage, Delta Low/High Voltage, all Cell Voltages
+        display.setFont();
+        display.setCursor(0,0);
+        if (bmsparsed->Cell1Voltage>0) { lowest=_min(lowest,bmsparsed->Cell1Voltage); highest=_max(highest,bmsparsed->Cell1Voltage); }
+        if (bmsparsed->Cell2Voltage>0) { lowest=_min(lowest,bmsparsed->Cell2Voltage); highest=_max(highest,bmsparsed->Cell2Voltage); }
+        if (bmsparsed->Cell3Voltage>0) { lowest=_min(lowest,bmsparsed->Cell3Voltage); highest=_max(highest,bmsparsed->Cell3Voltage); }
+        if (bmsparsed->Cell4Voltage>0) { lowest=_min(lowest,bmsparsed->Cell4Voltage); highest=_max(highest,bmsparsed->Cell4Voltage); }
+        if (bmsparsed->Cell5Voltage>0) { lowest=_min(lowest,bmsparsed->Cell5Voltage); highest=_max(highest,bmsparsed->Cell5Voltage); }
+        if (bmsparsed->Cell6Voltage>0) { lowest=_min(lowest,bmsparsed->Cell6Voltage); highest=_max(highest,bmsparsed->Cell6Voltage); }
+        if (bmsparsed->Cell7Voltage>0) { lowest=_min(lowest,bmsparsed->Cell7Voltage); highest=_max(highest,bmsparsed->Cell7Voltage); }
+        if (bmsparsed->Cell8Voltage>0) { lowest=_min(lowest,bmsparsed->Cell8Voltage); highest=_max(highest,bmsparsed->Cell8Voltage); }
+        if (bmsparsed->Cell9Voltage>0) { lowest=_min(lowest,bmsparsed->Cell9Voltage); highest=_max(highest,bmsparsed->Cell9Voltage); }
+        if (bmsparsed->Cell10Voltage>0) { lowest=_min(lowest,bmsparsed->Cell10Voltage); highest=_max(highest,bmsparsed->Cell10Voltage); }
+        if (bmsparsed->Cell11Voltage>0) { lowest=_min(lowest,bmsparsed->Cell11Voltage); highest=_max(highest,bmsparsed->Cell11Voltage); }
+        if (bmsparsed->Cell12Voltage>0) { lowest=_min(lowest,bmsparsed->Cell12Voltage); highest=_max(highest,bmsparsed->Cell12Voltage); }
+        //display.setCursor(0,0);
+        display.printf("01: %5.3f ",(float)bmsparsed->Cell1Voltage/1000.0f);
+        display.printf("02: %5.3f  ",(float)bmsparsed->Cell2Voltage/1000.0f);
+        display.printf("03: %5.3f ",(float)bmsparsed->Cell3Voltage/1000.0f);
+        display.printf("04: %5.3f  ",(float)bmsparsed->Cell4Voltage/1000.0f);
+        display.printf("05: %5.3f ",(float)bmsparsed->Cell5Voltage/1000.0f);
+        display.printf("06: %5.3f  ",(float)bmsparsed->Cell6Voltage/1000.0f);
+        display.printf("07: %5.3f ",(float)bmsparsed->Cell7Voltage/1000.0f);
+        display.printf("08: %5.3f  ",(float)bmsparsed->Cell8Voltage/1000.0f);
+        display.printf("09: %5.3f ",(float)bmsparsed->Cell9Voltage/1000.0f);
+        display.printf("10: %5.3f  ",(float)bmsparsed->Cell10Voltage/1000.0f);
+        display.printf("11: %5.3f ",(float)bmsparsed->Cell11Voltage/1000.0f);
+        display.printf("12: %5.3f  ",(float)bmsparsed->Cell12Voltage/1000.0f);
+        display.printf("Tot: %5.2V Diff: %5.3f Low: %5.3f High: %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f,(float)(lowest)/1000.0f,(float)(highest)/1000.0f);
+        //display.printf("Health");
+     break;
+
+    case oledm365error: //display error number & text
       break;
     case oledtimeout:
         display.clearDisplay();
@@ -1439,12 +1511,12 @@ void oled_updatescreens() {
         display.setTextColor(WHITE);
         display.print("DATA\r\nTIMEOUT");
         display.setFont();
+      break;
+  } //switch oledstate
         duration_oleddraw = micros()-timestamp_oleddraw;
         timestamp_oledi2c=micros();
         display.display();
         duration_oledi2c = micros()-timestamp_oledi2c;
-      break;
-  } //switch oledstate
 } //oled_updatescreenrs
 
 void handle_oled() {
