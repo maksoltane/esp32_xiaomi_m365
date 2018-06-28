@@ -1435,9 +1435,15 @@ uint8_t oledstate = 0;
 #define oledchargeend 6
 #define oledcells 7
 
-  void oled_update_subscriptions() {
-    subscribedrequests=rqsarray[oledstate];
-  }
+uint8_t stopsubscreen = 0;
+uint8_t gaswindowsubpos=0;
+#define gassubscreens 5
+#define gasmin 40
+#define gasmax 190
+#define gaswindowsize (uint8_t)((gasmax-gasmin)/gassubscreens)
+
+#define oledwidth 128
+#define oledheight 64
 
 void oled_switchscreens() {
   uint8_t oldscreen = oledstate;
@@ -1487,15 +1493,23 @@ void oled_switchscreens() {
   //switch between driving/stop screens:
     //maybe add a speed treshold like 0.3km/h to keep showing "stop" screen
     if (newdata & (oledstate==oleddrive) & (escparsed->speed==0)) {
-      oledstate==oledstop;
+    //if (newdata & ((x1parsed->mode==0)|(x1parsed->mode==2))) {
+      oledstate=oledstop;
       updatescreens=true;
     }
     if (newdata & (oledstate==oledstop) & (escparsed->speed>0)) {
-      oledstate==oleddrive;
+    //if (newdata & ((x1parsed->mode==1)|(x1parsed->mode==3))) {
+      oledstate=oleddrive;
       updatescreens=true;
     }
 
   //add switching of subscreens via throttle while we are in STOP screen
+  if (newdata & (oledstate==oledstop)) {
+    uint8_t oldstopsubscreen = stopsubscreen;
+    stopsubscreen = (bleparsed->throttle-gasmin) / gaswindowsize;
+    gaswindowsubpos = (uint8_t)((float)((bleparsed->throttle-gasmin) % gaswindowsize)*(float)oledheight/(float)gaswindowsize);
+    if (stopsubscreen!=oldstopsubscreen) { updatescreens = true; }
+  }
 
   //no special condition/screenswitch, just limit the screen update rate
     if (newdata & (olednextrefreshtimestamp<millis())) { 
@@ -1532,10 +1546,13 @@ void oled_updatescreens() {
         */
   }
   if (oledstate==oledstop) {
-        display.setCursor(0,fontbigbaselinezero);
-        display.setFont(&fontbig);
+        display.setCursor(0,fontsmallbaselinezero);
+        display.setFont(&fontsmall);
         display.println("STOP");
-        display.printf("%6.1f", (float)escparsed->speed/1000.0f);
+        display.printf("%6.1f\r\n", (float)escparsed->speed/1000.0f);
+        display.printf("s %d t %d p %d",stopsubscreen, bleparsed->throttle,gaswindowsubpos);
+        display.drawFastVLine(126,0,(uint8_t)((float)(stopsubscreen+1)*(float)((float)oledheight/(float)gassubscreens)),WHITE);
+        display.drawFastVLine(127,0,gaswindowsubpos,WHITE);
   }
   if (oledstate==oledcharging) {
         /* v1: Voltage, Current, Watt, Percent, mAh
@@ -1553,13 +1570,14 @@ void oled_updatescreens() {
         */
         display.setCursor(0,fontsmallbaselinezero);
         display.setFont(&fontsmall);
+        display.setCursor(0,fontsmallbaselinezero);
         display.print("CHARGING");
         display.setCursor(0,fontsmallbaselinezero+fontsmallheight);
         display.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/100.0f);
         display.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight);
         display.printf("%5.0fW   %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
-        display.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight+fontsmallheight);
-        display.printf("%d mAH",bmsparsed->remainingcapacity);
+        //display.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight+fontsmallheight);
+        //display.printf("%d mAH",bmsparsed->remainingcapacity);
   }
   if (oledstate==oledchargestart) {
     display.setFont();
@@ -1609,6 +1627,7 @@ void oled_updatescreens() {
     display.setFont(&fontbig);
     display.setCursor(0,fontbigbaselinezero);
     display.print("ERROR");
+    //https://mimod.ru/en_US/m365errorcodes/
   }
   if (oledstate==oledtimeout) {
     display.setFont(&fontsmall);
