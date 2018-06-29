@@ -25,7 +25,7 @@ references used:
  *  Adafruit_SSD1306.cpp: in void Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, uint8_t sda, uint8_t scl, bool reset) add  Wire.setClock(800000); after Wire.begin;
  */
 
-#define swversion "M365 OLED\r\nv20180627"
+#define swversion "M365 OLED\r\nv20180629"
 
 //functional modules
   #define useoled1 //comment out to disable oled functionality
@@ -55,11 +55,13 @@ references used:
 #ifdef useoled1
   #include <Adafruit_SSD1306.h>
   #include <Adafruit_GFX.h>
+  #include <Fonts/FreeSansOblique24pt7b.h>
   #include <Fonts/FreeSans18pt7b.h>
-  #define fontbig FreeSans18pt7b
-  #define fontbigbaselinezero 25
+  #define fontbig FreeSansOblique24pt7b
+  #define fontbigbaselinezero 28
   #define fontbigheight 36
   #include <Fonts/FreeSansBold9pt7b.h>
+  #include <Fonts/FreeSans9pt7b.h>
   #define fontsmall FreeSansBold9pt7b
   #define fontsmallbaselinezero 6
   #define fontsmallheight 18
@@ -420,7 +422,7 @@ references used:
         { address_bms, 0x31, 0x0A}, //remaining cap & percent, current, voltage, temperature
         { address_bms, 0x40, 0x18}, //cell voltages (Cells 1-10 & 11-12 for 12S Batt/Custom BMS)
         { address_bms, 0x3B, 0x02}, //Battery Health
-        { address_bms, 0x10, 0x20}, //serial,fwversion,totalcapacity,cycles,chargingtimes,productiondate
+        { address_bms, 0x10, 0x22}, //serial,fwversion,totalcapacity,cycles,chargingtimes,productiondate
         { address_esc, 0x10, 0x16} //serial,pin,fwversion
     };
 
@@ -443,7 +445,8 @@ references used:
   //mapping oled screens / requeired data
     #define numscreens 8
     uint8_t rqsarray[numscreens] = {
-      rq_esc_essentials|rq_bms_essentials, //oledstop
+      rq_esc_essentials|rq_esc_remdist|rq_esc_essentials2|rq_bms_essentials|rq_bms_cells|rq_bms_health|rq_bms_versioninfos|rq_esc_versioninfos, //rq_esc_essentials|rq_bms_essentials|rq_esc_essentials2, //oledstop
+      //0xff, //oledstop, TODO: Request infos like Serial/FW Version only _once_ (when entering subscreen)
       rq_esc_essentials|rq_bms_essentials, //oleddrive
       rq_esc_essentials, //oledm365error
       rq_esc_essentials, //oledtimeout
@@ -1437,13 +1440,19 @@ uint8_t oledstate = 0;
 
 uint8_t stopsubscreen = 0;
 uint8_t gaswindowsubpos=0;
-#define gassubscreens 5
+#define gassubscreens 7
 #define gasmin 40
 #define gasmax 190
 #define gaswindowsize (uint8_t)((gasmax-gasmin)/gassubscreens)
 
 #define oledwidth 128
 #define oledheight 64
+
+//display.setFont(&FreeSansBold9pt7b);
+#define baselineoffset 13
+#define linespace 1
+
+#define dataoffset 9
 
 void oled_switchscreens() {
   uint8_t oldscreen = oledstate;
@@ -1507,7 +1516,8 @@ void oled_switchscreens() {
   if (newdata & (oledstate==oledstop)) {
     uint8_t oldstopsubscreen = stopsubscreen;
     stopsubscreen = (bleparsed->throttle-gasmin) / gaswindowsize;
-    gaswindowsubpos = (uint8_t)((float)((bleparsed->throttle-gasmin) % gaswindowsize)*(float)oledheight/(float)gaswindowsize);
+    gaswindowsubpos = (uint8_t)((float)((bleparsed->throttle-gasmin) % gaswindowsize)*(float)oledwidth/(float)gaswindowsize);
+    if ((stopsubscreen+1)>gassubscreens) { stopsubscreen=gassubscreens-1; }
     if (stopsubscreen!=oldstopsubscreen) { updatescreens = true; }
   }
 
@@ -1530,13 +1540,23 @@ void oled_updatescreens() {
   if (oledstate==oleddrive) {
         display.setCursor(0,fontbigbaselinezero);
         display.setFont(&fontbig);
-        display.printf("%6.1f", (float)escparsed->speed/1000.0f);
-        display.setCursor(0,fontsmallbaselinezero+fontbigheight);
-        display.setFont(&fontsmall);
-        display.setTextColor(WHITE);
-        display.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/1000.0f);
-        display.setCursor(0,fontsmallbaselinezero+fontbigheight+fontsmallheight);
-        display.printf("%5.0fW   %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
+        display.printf("%04.1f", abs((float)escparsed->speed/1000.0f));
+        //display.setFont(&FreeSans9pt7b);
+        display.setFont(&FreeSans18pt7b);
+
+        //display.setCursor(0,fontsmallbaselinezero+fontbigheight);
+        //display.setCursor(0,baselineoffset*3+linespace*2);
+        //display.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/1000.0f);
+        //display.setCursor(0,fontsmallbaselinezero+fontbigheight+fontsmallheight);
+        display.setCursor(0,64);
+        //display.printf("%5.0fW    %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
+        display.printf("%5.0f",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f));
+        display.setFont(&FreeSans9pt7b); 
+        display.print("W");
+        display.setCursor(86,dataoffset+baselineoffset*4+linespace*3-2); display.printf("%3d%%",bmsparsed->remainingpercent);
+        display.setFont();
+        display.setCursor(104,28);
+        display.print("km/h");
         /*display.print()
         display.setFont();
         display.setTextSize(0);
@@ -1546,13 +1566,167 @@ void oled_updatescreens() {
         */
   }
   if (oledstate==oledstop) {
-        display.setCursor(0,fontsmallbaselinezero);
-        display.setFont(&fontsmall);
-        display.println("STOP");
-        display.printf("%6.1f\r\n", (float)escparsed->speed/1000.0f);
-        display.printf("s %d t %d p %d",stopsubscreen, bleparsed->throttle,gaswindowsubpos);
-        display.drawFastVLine(126,0,(uint8_t)((float)(stopsubscreen+1)*(float)((float)oledheight/(float)gassubscreens)),WHITE);
-        display.drawFastVLine(127,0,gaswindowsubpos,WHITE);
+        //display.setCursor(0,fontsmallbaselinezero);
+        //display.setFont(&fontsmall);
+        //display.println("STOP");
+        //display.printf("%6.1f\r\n", (float)escparsed->speed/1000.0f);
+        //display.printf("s %d t %d p %d",stopsubscreen, bleparsed->throttle,gaswindowsubpos);
+        //display.drawFastVLine(126,0,(uint8_t)((float)(stopsubscreen+1)*(float)((float)oledheight/(float)gassubscreens)),WHITE);
+        //display.drawFastVLine(127,0,gaswindowsubpos,WHITE);
+
+        display.clearDisplay();
+        display.setFont();
+        display.setCursor(0,0);
+        //display.drawFastHLine(0,8,128,WHITE);
+        display.drawFastHLine(0,8,gaswindowsubpos,WHITE);
+        switch (stopsubscreen) {
+          case 0: //Trip Info: Average Speed, Distance, Time, Average Speed 
+              display.printf("TRIP            (%d/7)",stopsubscreen+1);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Avg:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%5.1f%",(float)escparsed->averagespeed/1000.0f);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Dist:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.printf("%.2fkm",(float)escparsed->tripdistance/100.0f);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Time:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%ds",escparsed->triptime);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Rem:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%.2fkm",(float)escparsed->remainingdistance/100.0f);
+            break;
+          case 1: //Temperatures - Frame temp 1 & 2, Batt Temp 1 & 2
+              display.printf("TEMPERATURE     (%d/7)",stopsubscreen+1);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Batt1:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%3d°C",bmsparsed->temperature[0]-20);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace+1); display.print("Batt2:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace+1); display.printf("%3d°C",bmsparsed->temperature[1]-20);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+(linespace+1)*2); display.print("Frame:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+(linespace+1)*2); display.printf("%.1f°C",(float)escparsed->frametemp2/10.0f);
+              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Frame:");
+              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%.1f°C",(float)escparsed->frametemp2/10.0f);
+            break;
+          case 2: //Batt Info 1: Total Capacity, Remaining, Voltage, Percent
+              display.printf("BATTERY 1       (%d/7)",stopsubscreen+1);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("TotCap:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%5d",bmsparsed->totalcapacity);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Cap:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.printf("%5d",bmsparsed->remainingcapacity);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Volt:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%5.2fV",(float)bmsparsed->voltage/100.0f);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("%:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%3d%%",bmsparsed->remainingpercent);
+            break;
+          case 3: //Batt Info 2: Health/Cycles/Charge Num/Prod Date
+              display.printf("BATTERY 2       (%d/7)",stopsubscreen+1);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Health:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%d",bmsparsed->health);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Cycles:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.printf("%5d",bmsparsed->cycles);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Charge#:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%d",bmsparsed->chargingtimes);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Prod:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%d-%d-%d",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
+            break;
+
+          case 4: //Cell Voltages
+              display.printf("CELL VOLTAGES   (%d/7)\r\n",stopsubscreen+1);
+              if (bmsparsed->Cell1Voltage>0) { lowest=_min(lowest,bmsparsed->Cell1Voltage); highest=_max(highest,bmsparsed->Cell1Voltage); }
+              if (bmsparsed->Cell2Voltage>0) { lowest=_min(lowest,bmsparsed->Cell2Voltage); highest=_max(highest,bmsparsed->Cell2Voltage); }
+              if (bmsparsed->Cell3Voltage>0) { lowest=_min(lowest,bmsparsed->Cell3Voltage); highest=_max(highest,bmsparsed->Cell3Voltage); }
+              if (bmsparsed->Cell4Voltage>0) { lowest=_min(lowest,bmsparsed->Cell4Voltage); highest=_max(highest,bmsparsed->Cell4Voltage); }
+              if (bmsparsed->Cell5Voltage>0) { lowest=_min(lowest,bmsparsed->Cell5Voltage); highest=_max(highest,bmsparsed->Cell5Voltage); }
+              if (bmsparsed->Cell6Voltage>0) { lowest=_min(lowest,bmsparsed->Cell6Voltage); highest=_max(highest,bmsparsed->Cell6Voltage); }
+              if (bmsparsed->Cell7Voltage>0) { lowest=_min(lowest,bmsparsed->Cell7Voltage); highest=_max(highest,bmsparsed->Cell7Voltage); }
+              if (bmsparsed->Cell8Voltage>0) { lowest=_min(lowest,bmsparsed->Cell8Voltage); highest=_max(highest,bmsparsed->Cell8Voltage); }
+              if (bmsparsed->Cell9Voltage>0) { lowest=_min(lowest,bmsparsed->Cell9Voltage); highest=_max(highest,bmsparsed->Cell9Voltage); }
+              if (bmsparsed->Cell10Voltage>0) { lowest=_min(lowest,bmsparsed->Cell10Voltage); highest=_max(highest,bmsparsed->Cell10Voltage); }
+              //if (bmsparsed->Cell11Voltage>0) { lowest=_min(lowest,bmsparsed->Cell11Voltage); highest=_max(highest,bmsparsed->Cell11Voltage); }
+              //if (bmsparsed->Cell12Voltage>0) { lowest=_min(lowest,bmsparsed->Cell12Voltage); highest=_max(highest,bmsparsed->Cell12Voltage); }
+              display.printf("01: %5.3f ",(float)bmsparsed->Cell1Voltage/1000.0f);
+              display.printf("02: %5.3f  ",(float)bmsparsed->Cell2Voltage/1000.0f);
+              display.printf("03: %5.3f ",(float)bmsparsed->Cell3Voltage/1000.0f);
+              display.printf("04: %5.3f  ",(float)bmsparsed->Cell4Voltage/1000.0f);
+              display.printf("05: %5.3f ",(float)bmsparsed->Cell5Voltage/1000.0f);
+              display.printf("06: %5.3f  ",(float)bmsparsed->Cell6Voltage/1000.0f);
+              display.printf("07: %5.3f ",(float)bmsparsed->Cell7Voltage/1000.0f);
+              display.printf("08: %5.3f  ",(float)bmsparsed->Cell8Voltage/1000.0f);
+              display.printf("09: %5.3f ",(float)bmsparsed->Cell9Voltage/1000.0f);
+              display.printf("10: %5.3f  ",(float)bmsparsed->Cell10Voltage/1000.0f);
+              //display.printf("11: %5.3f ",(float)bmsparsed->Cell11Voltage/1000.0f);
+              //display.printf("12: %5.3f  ",(float)bmsparsed->Cell12Voltage/1000.0f);
+              //display.printf("Tot: %5.2fV D: %5.3fL: %5.3f H: %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f,(float)(lowest)/1000.0f,(float)(highest)/1000.0f);
+              //display.printf("L:  %5.3f H:  %5.3f\r\n", (float)(lowest)/1000.0f,(float)(highest)/1000.0f);
+              //display.printf("T:  %5.2f D:  %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f);
+              display.printf("Max. Diff: %5.3f", (float)(highest-lowest)/1000.0f);
+            break;
+          case 5: //Serials/Versions/Name
+              display.printf("Assets          (%d/7)\r\n",stopsubscreen+1);
+              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("BMS SN:");
+              sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
+              display.printf("BMS   FW: %x.%x.%x\r\nSN: %s\r\n", bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f,tmp1);
+              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%s",tmp1);
+              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); 
+              //display.print("BMS FW:   ");
+              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); 
+              //display.printf("%x.%x.%x\r\n",bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
+              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); 
+              sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
+              display.printf("ESC   FW: %x.%x.%x\r\nSN: %s\r\n", escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f,tmp1);
+              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%s",tmp1);
+              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); 
+              //display.print("ESC FW:   ");
+              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); 
+              //display.printf("%x.%x.%x\r\n",escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
+              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); 
+              sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
+              display.printf("Pin: %s\r\n", tmp1);
+              display.printf("Miles:%.2fkm",(float)escparsed->totaldistance/1000.0f);
+              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); 
+              //display.printf("%s",tmp1);
+            break;
+          case 6: //config
+              display.printf("CONFIG          (%d/7)",stopsubscreen+1);
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("KERS:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(80,dataoffset+baselineoffset); display.print("Weak");
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace+1); display.print("Tail Light:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(80,dataoffset+baselineoffset*2+linespace+1); display.print("  Off");
+              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+(linespace+1)*2); display.print("Cruise:");
+              display.setFont(&FreeSansBold9pt7b); display.setCursor(80,dataoffset+baselineoffset*3+(linespace+1)*2); display.print("   On");
+              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Volt:");
+              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.print("42.65V");
+            break;
+        }
+
+        /*//display.setFont(); display.setCursor(0,dataoffset); display.print("Volt:");
+        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Volt:");
+        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.print("42.65V");
+        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Volt:");
+        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.print("42.65V");
+        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Volt:");
+        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.print("42.65V");
+        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Volt:");
+        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.print("42.65V");
+        */
+/*
+ telnetclient.printf("\r\nBLE\r\n Throttle: %03d Brake %03d\r\n",bleparsed->throttle,bleparsed->brake);
+                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
+                telnetclient.printf("\r\n\r\nBMS Serial: %s Version: %x.%x.%x\r\n", tmp1,bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
+                telnetclient.printf(" Capacity Total: %5d mAh Remaining %5d mAh Percent %03d%%\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent);
+                telnetclient.printf(" Temperature1 %3d°C Temperature2 %3d°C Health %05d\r\n",bmsparsed->temperature[1]-20, bmsparsed->temperature[0]-20, bmsparsed->health);
+                telnetclient.printf(" Voltage: %2.2f V Current %05d mA\r\n",(float)bmsparsed->voltage/100.0f, bmsparsed->current);
+                telnetclient.printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage/1000.0f);
+                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
+                telnetclient.printf("\r\n\r\nESC Serial: %s Version: %x.%x.%x\r\n", tmp1,escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
+                sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
+                telnetclient.printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
+                telnetclient.printf(" Distance Total: %.2f km Trip: %.2f km Remaining %.2f km\r\n", (float)escparsed->totaldistance/1000.0f,(float)escparsed->tripdistance/100.0f,(float)escparsed->remainingdistance/100.0f);
+                telnetclient.printf(" Power On Time1: %d s, Power On Time1: %d s, Trip Time: %d s\r\n",escparsed->ontime1,escparsed->ontime2,escparsed->triptime);
+                telnetclient.printf(" FrameTemp1: %05d FrameTemp2: %.1f °C\r\n", (float)escparsed->frametemp1/10.0f, (float)escparsed->frametemp2/10.0f);
+                telnetclient.printf(" Speed: %.2f km/h Avg: %.2f km/h\r\n", (float)escparsed->speed/1000.0f, (float)escparsed->averagespeed/1000.0f);
+                telnetclient.printf(" Batt Percent: %3d%%\r\n",escparsed->battpercent);
+                telnetclient.printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
+                telnetclient.printf("\r\n\r\nX1 Mode %03d LEDs %03d Light ",x1parsed->mode, x1parsed->battleds);
+                if (x1parsed->light==0) { telnetclient.print("OFF "); } else {
+                  if (x1parsed->light==100) { telnetclient.print("ON "); } else {
+*/
+
   }
   if (oledstate==oledcharging) {
         /* v1: Voltage, Current, Watt, Percent, mAh

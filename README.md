@@ -1,5 +1,11 @@
 # esp32_xiaomi_m365
-Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressif ESP32 / ESP8266
+Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressif ESP32 / ESP8266:
+- Cheap 128x64 pix OLED SSD1306 based
+- ESP32/Arduino Code
+- OTA for Firmwareupdates
+- Telnet Screens for debugging
+- Oled Display with different Screens in Drive/Charge/Stop Mode
+- Throttle in stopped mode to Swipe through different screens
 
 # Done
 - WiFi Auto Connect to known SSIDs or AP-Mode & Telnet with Timeouts to auto-turnoff Telnet/WiFi
@@ -20,24 +26,21 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
  - fix - wlan-search is blocking display on startup
  - split newdata flag into esc/bms newdata flags and use in decision if (time-costly) oled-updates are needed
  - Test on ESP8266
- - OLED: 
-   - Add more data screens
-   - Add Popup Messages for Events (e.g. Scooter Error, Temp, BMS CellVoltage variations > treshold, WLAN/BLE On/Off, Client Connected,...)
- - Add Status/Infoscreen Navigation using Throttle
- - Menu
-   - Add Menu-Navigation using Throttle/Break
-   - Add Menu-Navigation using ESP32 Touch Capabilities
-   - Menu for turning on/off/change energy-recovery, lights, lock, flash-protection
+ - OLED: Add Popup Messages for Events (e.g. Scooter Error, Temp, BMS CellVoltage variations > treshold, WLAN/BLE On/Off, Client Connected,...)
+ - Add Menu/Change functionality for "Config" Screen Items
+ - Add Background housekeeper task 
+   - Check Scooter Error Register
+   - Firmware-Flash Protection
+   - Alert User if Cell-Voltages difference is above a treshold
  - custom PCB with 2 OLEDs, ESP32S, VReg and touch areas
  - add sleeptimer - x seconds after last event (gas/brake/throttle/speed/chargerun-plug/telnet/AP-Client Connection) - stop sending  requests, so scooter can timeout/turn itself off
  - advanced thief/lock protection
 
-# Todos 2 - Ideas & Visions:
+# further Ideas & Visions:
  - add Scooter-Flashing Protection (so no one can flash broken firmware to your scooter while waiting at a red traffic light
  - advanced trip computer (which keeps trip-totals/averages between 2 charge cycles or 2 times with the same available SSID (leaving/coming home)
  - MQTT Logging of Trip-Summary Data
  - Navigation Arrow Display e.g. with Komoot (https://github.com/komoot/BLEConnect)
- - Alert User if Cell-Voltages difference is above a treshold
  
 # Telnet Interface
  - Telemetrie Screen shows decoded known values: Batt Voltage, Current, Speed,... 
