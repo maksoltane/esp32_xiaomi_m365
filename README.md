@@ -5,7 +5,7 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - OTA for Firmwareupdates
 - Telnet Screens for debugging
 - Oled Display with different Screens in Drive/Charge/Stop Mode
-- Throttle in stopped mode to Swipe through different screens
+- use Throttle in stopped mode to Swipe through different screens
 
 # Done
 - WiFi Auto Connect to known SSIDs or AP-Mode & Telnet with Timeouts to auto-turnoff Telnet/WiFi
@@ -20,11 +20,17 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - Basic screens (nicer layout to follow) for drive/stall/charging
 - Added Loop-Timers and Counters for debugging Receiver/Requestor & Oled-Draw/Transfer Durations
 - OLED Shows LED/Light Status (to recognize accidental switched on Light @ noon while switching normal/eco mode)
+- added handling of 2nd OLED screen, used library has some problems with it -> disabled
+- added ESP32 Status Screen
+- reformated driving-screen
+- status screen for ota-firmwareupdate
+- added boilerplate screen in stop mode
+- fixed display lock by wlan-search
+- added charge subscreen with cell voltages
+
 
 # Todos
  - fix - data-requestor timing currently causes ~10% crc errors on m365 bus
- - fix - wlan-search is blocking display on startup
- - split newdata flag into esc/bms newdata flags and use in decision if (time-costly) oled-updates are needed
  - Test on ESP8266
  - OLED: Add Popup Messages for Events (e.g. Scooter Error, Temp, BMS CellVoltage variations > treshold, WLAN/BLE On/Off, Client Connected,...)
  - Add Menu/Change functionality for "Config" Screen Items

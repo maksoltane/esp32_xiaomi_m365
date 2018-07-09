@@ -21,14 +21,30 @@ references used:
 
 /* Modifications to ADAFRUIT SSD1306 Library 1.02for ESP32:
  *  Adafruit_SSD1306.h:35 - #elif defined(ESP8266) || defined(ESP32) || defined(ARDUINO_STM32_FEATHER)
+ *  Adafruit_SSD1306.h: change line "void begin(uint8_t switchvcc = SSD1306_SWITCHCAPVCC, uint8_t i2caddr = SSD1306_I2C_ADDRESS, bool reset=true);"
+      to: "void begin(uint8_t switchvcc = SSD1306_SWITCHCAPVCC, uint8_t i2caddr = SSD1306_I2C_ADDRESS, uint8_t sda =12, uint8_t scl=14, bool reset=true);"
+ *  Adafruit_SSD1306.h: add new line with "uint8_t _sda, _scl;" before line that contains fastspiwrite
  *  Adafruit_SSD1306.cpp:27 - #if !defined(__ARM_ARCH) && !defined(ENERGIA) && !defined(ESP8266) && !defined(ESP32)
- *  Adafruit_SSD1306.cpp: in void Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, uint8_t sda, uint8_t scl, bool reset) add  Wire.setClock(800000); after Wire.begin;
+ *  Adafruit_SSD1306.cpp: change "void Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {" to "void Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, uint8_t sda, uint8_t scl, bool reset) {"
+ *  Adafruit_SSD1306.cpp: in "void Adafruit_SSD1306::begin..." add "_sda = sda; _scl=scl;" as first line
+ *  Adafruit_SSD1306.cpp: in "void Adafruit_SSD1306::begin..." change Wire.begin(); to Wire.begin(_sda,_scl,800000);
+ *  nt8_t vccstate, uint8_t i2caddr, uint8_t sda, uint8_t scl, bool reset) add  Wire.setClock(800000); after Wire.begin;
+ *  
+ *  HACK for DUAL Display - 2 displays on 2 different i2c interfaces with 2 different displaybuffers:
+ *  copy Adafruit_SSD1306 library directory and rename both to Adafruit_SSD1306_0 and Adafruit_SSD1306_1
+ *  do the same with the .h/.cpp filenames -> append _0/_1
+ *  change all appearances of Adafruit_SSD1306 to Adafruit_SSD1306_0 / Adafruit_SSD1306_1 in .h & .cpp
+ *  change "Wire." to "MyWire0." / "MyWire1." in .cpp
+ *  add TwoWire MyWire0 = TwoWire(0); / TwoWire MyWire1 = TwoWire(1); to .cpp after includes/before
+ *  in library.properties file change library name, e.g. append "_0" and "_1"
+ *  change the includes in this file (see display section below)
  */
 
-#define swversion "M365 OLED\r\nv20180629"
+#define swversion "18.07.09"
 
 //functional modules
   #define useoled1 //comment out to disable oled functionality
+  //#define useoled2
   //#define usewlanclientmode //NOT IMPLEMENTED comment out to disable Wifi Client functionality
   //#define usewlanapmode //NOT IMPLEMENTED  comment out to disable Wifi Access Poiint functionality
   #define usetelnetserver //comment out to disable telnet status/telemetrie server, this also disables RAW Server (so only mqtt might be left for leaving wifi activated)
@@ -53,41 +69,105 @@ references used:
 
 //OLED
 #ifdef useoled1
-  #include <Adafruit_SSD1306.h>
-  #include <Adafruit_GFX.h>
-  #include <Fonts/FreeSansOblique24pt7b.h>
-  #include <Fonts/FreeSans18pt7b.h>
-  #define fontbig FreeSansOblique24pt7b
-  #define fontbigbaselinezero 28
-  #define fontbigheight 36
-  #include <Fonts/FreeSansBold9pt7b.h>
-  #include <Fonts/FreeSans9pt7b.h>
-  #define fontsmall FreeSansBold9pt7b
-  #define fontsmallbaselinezero 6
-  #define fontsmallheight 18
-  #define sclpin GPIO_NUM_15 //working ttgo board
-  #define sdapin GPIO_NUM_4  //working ttgo board
-  //#define sclpin GPIO_NUM_4 //working
-  //#define sdapin GPIO_NUM_0  //working
-  //#define sclpin GPIO_NUM_23 //working
-  //#define sdapin GPIO_NUM_5  //working
-  
-  #define OLED_RESET 16 //original war das auch 4, -1 geht auch -> ist gpio nummer... somit nicht belegt...
-  //#define OLED_RESET -1 //original war das auch 4, -1 geht auch -> ist gpio nummer... somit nicht belegt...
-  Adafruit_SSD1306 display(OLED_RESET);
-  //Adafruit_SSD1306 display2(OLED_RESET);
-  //Standard font, display.setTextSize(1); = 8x8pix (Char = 7x7, 1 blank right/bottom)
-  #define line1 0
-  #define line2 8
-  #define line3 16
-  #define line4 32
-  #define line5 48
-  #define line6 56
-  boolean updatescreens = false;
-  #define oledrefreshanyscreen 200 //refresh oled screen every xx ms (if there is new data)
-  unsigned long olednextrefreshtimestamp = 0;
-  unsigned long timeout_oled = 0;
-  #define oledchargestarttimeout 1000 //show cell info screen on start of charging
+    #define oled1_scl GPIO_NUM_4 //working wemos fake board
+    #define oled1_sda GPIO_NUM_16 //working wemos fake board
+    #define oled1_reset -1
+    #define oled1_address 0x3C
+    //#define sclpin GPIO_NUM_15 //working ttgo board
+    //#define sdapin GPIO_NUM_4  //working ttgo board
+    //#define sclpin GPIO_NUM_4 //working ttgo board
+    //#define sdapin GPIO_NUM_0  //working ttgo board
+    //#define sclpin GPIO_NUM_23 //working ttgo board
+    //#define sdapin GPIO_NUM_5  //working ttgo board
+#endif
+
+#if defined useoled2
+    #define oled2_scl GPIO_NUM_32 //working wemos fake board
+    #define oled2_sda GPIO_NUM_21 //working wemos fake board
+    #define oled2_reset -1
+    #define oled2_address 0x3C
+
+    #ifndef useoled1
+      #error "useoled2 defined, but useoled1 not defined"
+    #endif
+#endif
+
+#if (defined useoled1 && !defined useoled2)
+    #include <Adafruit_SSD1306.h>
+    Adafruit_SSD1306 display1(oled1_reset);
+    //#define display2 display1
+#endif
+
+#if (defined useoled1 && defined useoled2)
+    #include <Adafruit_SSD1306_0.h>
+    #include <Adafruit_SSD1306_1.h>
+    Adafruit_SSD1306_0 display1(oled1_reset);
+    Adafruit_SSD1306_1 display2(oled2_reset);
+#endif
+
+#if (defined useoled1 || defined useoled2)
+    #include <Adafruit_GFX.h>
+    #include <Fonts/FreeSansOblique24pt7b.h>
+    #include <Fonts/FreeSans18pt7b.h>
+    #define fontbig FreeSansOblique24pt7b
+    #define fontbigbaselinezero 32
+    #define fontbigheight 36
+    #include <Fonts/FreeSansBold9pt7b.h>
+    #include <Fonts/FreeSans9pt7b.h>
+    #define fontsmall FreeSansBold9pt7b
+    #define fontsmallbaselinezero 6
+    #define fontsmallheight 18
+    #define line1 0
+    #define line2 8
+    #define line3 16
+    #define line4 32
+    #define line5 48
+    #define line6 56
+    boolean updatescreens = false;
+    #define oledrefreshanyscreen 200 //refresh oled screen every xx ms (if there is new data)
+    unsigned long olednextrefreshtimestamp = 0;
+    unsigned long timeout_oled = 0;
+    boolean oled_blink=true;
+    #define oledwidth 128
+    #define oledheight 64
+    #define baselineoffset 13
+    #define linespace 1
+    #define dataoffset 9
+
+    static const unsigned char PROGMEM scooter [] PROGMEM = {
+      0x00, 0x01, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x80, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x30, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9c, 0x80, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x76, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x80, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x69, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x58, 0x80, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x0a, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0x80, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x01, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0e, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x0a, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x00, 0x13, 0x80, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x17, 0x00, 0x00, 0x00, 0x00, 0x30, 0xe0, 
+      0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x70, 0x30, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x98, 0x78, 
+      0x00, 0x22, 0x80, 0x00, 0x00, 0x01, 0x27, 0x18, 0x00, 0x20, 0x40, 0x00, 0x00, 0x1e, 0x59, 0xd8, 
+      0x00, 0x21, 0x20, 0x00, 0x07, 0xc0, 0xb6, 0x10, 0x00, 0x66, 0x90, 0x01, 0xf0, 0x09, 0xbd, 0x30, 
+      0x01, 0xc5, 0x08, 0x7c, 0x00, 0x06, 0xd3, 0xb0, 0x02, 0x02, 0x87, 0x00, 0x00, 0x03, 0x79, 0x90, 
+      0x04, 0x61, 0x40, 0x00, 0x00, 0xec, 0x2f, 0xf0, 0x09, 0x20, 0x80, 0x00, 0x32, 0x21, 0x0a, 0xa0, 
+      0x08, 0xc5, 0x8c, 0x04, 0x80, 0xfc, 0x90, 0x40, 0x10, 0x4c, 0x73, 0x60, 0x3f, 0x50, 0x61, 0x80, 
+      0x10, 0x0a, 0x73, 0x0f, 0xc0, 0x50, 0x1e, 0x00, 0x13, 0x62, 0xcf, 0xf0, 0x00, 0x50, 0x00, 0x00, 
+      0x14, 0x13, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x11, 0x2d, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 
+      0x10, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0xa6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+      0x04, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
 #endif
 
 //WLAN
@@ -124,7 +204,7 @@ references used:
   #define wlanturnoff 6 
 
   #define wlanconnecttimeout 10000 //timeout for connecting to one of  the known ssids
-  #define wlanapconnecttimeout 60000 //timeout in ap mode until client needs to connect / ap mode turns off
+  #define wlanapconnecttimeout 30000 //timeout in ap mode until client needs to connect / ap mode turns off
   unsigned long wlanconnecttimestamp = 0;
 
 #ifdef usetelnetserver
@@ -145,7 +225,7 @@ references used:
   #define telnetturnoff 4
   #define telnetdisconnectclients 5
 
-  #define userconnecttimeout 600000 //timeout for connecting to telnet/http after wlan connection has been established with ap or client
+  #define userconnecttimeout 30000 //timeout for connecting to telnet/http after wlan connection has been established with ap or client
   #define telnetrefreshanyscreen 100 //refresh telnet screen every xx ms
   #define telnetrefreshrawarrayscreen 500 //refresh telnet screen every xx ms
   unsigned long userconnecttimestamp = 0;
@@ -194,10 +274,13 @@ references used:
   *  uart->dev->conf1.rxfifo_full_thrhd = 1;
   */
   HardwareSerial M365Serial(2);  // UART1/Serial1 pins RX 16, TX17
-  #define UART2RX GPIO_NUM_5
-  //#define UART2RX GPIO_NUM_16
-  #define UART2TX GPIO_NUM_17
-  #define UART2RXunused GPIO_NUM_23 //ESP32 does not support RX or TX only modes - so we remap the rx pin to a unused gpio during sending
+  //#define UART2RX GPIO_NUM_5 //TTGO Test board
+  //#define UART2TX GPIO_NUM_17 //TTGO Test board
+  //#define UART2RXunused GPIO_NUM_23 //TTGO Test board; ESP32 does not support RX or TX only modes - so we remap the rx pin to a unused gpio during sending
+  #define UART2RX GPIO_NUM_23 //Wemos board
+  #define UART2TX GPIO_NUM_5 //Wemos board
+  #define UART2RXunused GPIO_NUM_19 //TTGO Test board; ESP32 does not support RX or TX only modes - so we remap the rx pin to a unused gpio during sending
+
   //custom pins see here: http://www.iotsharing.com/2017/05/how-to-use-serial-arduino-esp32-print-debug.html?m=1
   //enable rx/tx only  modes see: https://github.com/esp8266/Arduino/blob/master/cores/esp8266/HardwareSerial.h
   #ifdef ESP32
@@ -248,6 +331,7 @@ references used:
   #define address_bms_request 0x22 //used by apps to read data from bms
   #define address_bms 0x25 //data from bms sent with this address (only passive if requested via address_esc_request)
 
+/*
   #define aap2bms 0x22
 
   #define MastertoM365 0x20
@@ -255,12 +339,7 @@ references used:
 
 #define MastertoBATT 0x22 //request data from bms
 #define BATTtoMaster 0x25
-
-
-
-
-
-//#define MastertoBATT 0x22 - from CamiAlfa not used so far
+*/
 
 //M365 - Statistics
   uint16_t packets_rec=0;
@@ -275,6 +354,13 @@ references used:
   uint16_t packetsperaddress[256];
   uint16_t requests_sent_bms=0;
   uint16_t requests_sent_esc=0;
+
+  int16_t speed_min = 0;
+  int16_t speed_max = 0;
+  int16_t current_min = 0;
+  int16_t current_max = 0;
+  int32_t watt_min = 0;
+  int32_t watt_max = 0;
 
   #define m365packettimeout  500 //timeout in ms after last received packet for showing connection-error
   unsigned long m365packettimestamp = 0;
@@ -436,64 +522,36 @@ references used:
     #define rq_bms_versioninfos 0x40
     #define rq_esc_versioninfos 0x80
 
-    //#define rqs_drive rq_esc_essentials|rq_bms_essentials
-    //#define rqs_stopped rq_esc_essentials|rq_bms_essentials
-    //#define rqs_chargestart rq_esc_essentials|rq_bms_cells
-    //#define rqs_charging rq_esc_essentials|rq_bms_essentials
-    //#define rqs_chargeend rq_esc_essentials|rq_bms_cells
-
   //mapping oled screens / requeired data
-    #define numscreens 8
+    #define numscreens 5
     uint8_t rqsarray[numscreens] = {
       rq_esc_essentials|rq_esc_remdist|rq_esc_essentials2|rq_bms_essentials|rq_bms_cells|rq_bms_health|rq_bms_versioninfos|rq_esc_versioninfos, //rq_esc_essentials|rq_bms_essentials|rq_esc_essentials2, //oledstop
       //0xff, //oledstop, TODO: Request infos like Serial/FW Version only _once_ (when entering subscreen)
       rq_esc_essentials|rq_bms_essentials, //oleddrive
       rq_esc_essentials, //oledm365error
       rq_esc_essentials, //oledtimeout
-      rq_esc_essentials|rq_bms_cells, //charge start
-      rq_esc_essentials|rq_bms_essentials, //charging
-      rq_esc_essentials|rq_bms_cells, //chargeend
-      rq_esc_essentials|rq_bms_cells //oledcells
+      rq_esc_essentials|rq_bms_essentials|rq_bms_cells //charging
     };
 
   uint8_t subscribedrequests = rq_esc_essentials|rq_bms_essentials;
 
+//Screen Switching
+  uint8_t oledstate = 0;
+  #define oledstop 0
+  #define oleddrive 1
+  #define oledm365error 2
+  #define oledtimeout 3
+  #define oledcharging 4
 
-  //request arrays for testing/reference
-    /*
-    //additional infos:
-      uint8_t requests[requestmax][3]= {
-          { address_bms, 0x10, 0x20}, //serial,fwversion,totalcapacity,cycles,chargingtimes,productiondate
-          { address_bms, 0x3B, 0x02}, //Battery Health
-          { address_bms, 0x40, 0x14}, //cell voltages
-          { address_esc, 0x10, 0x16}, //serial,pin,fwversion
-          { address_esc, 0x75, 0x02}, //eco mode
-          { address_esc, 0x7B, 0x06}, //kers, cruisemode, taillight
-          { address_esc, 0xB0, 0x02} //error
-        };
-        */
-      /*
-      //read entire 0xff words from esc and bms
-      #define requestmax 16
-      uint8_t requests[requestmax][3]= {
-          { address_bms, 0x00, 0x20},
-          { address_bms, 0x20, 0x20},
-          { address_bms, 0x40, 0x20},
-          { address_bms, 0x60, 0x20},
-          { address_bms, 0x80, 0x20},
-          { address_bms, 0xA0, 0x20},
-          { address_bms, 0xC0, 0x20},
-          { address_bms, 0xE0, 0x20},
-          { address_esc, 0x00, 0x20},
-          { address_esc, 0x20, 0x20},
-          { address_esc, 0x40, 0x20},
-          { address_esc, 0x60, 0x20},
-          { address_esc, 0x80, 0x20},
-          { address_esc, 0xA0, 0x20},
-          { address_esc, 0xC0, 0x20},
-          { address_esc, 0xE0, 0x20}
-      };
-      */
+  uint8_t stopsubscreen = 0;
+  uint8_t chargesubscreen = 0;
+  uint8_t windowsubpos=0;
+  #define stopsubscreens 8
+  #define chargesubscreens 2
+  #define gasmin 50
+  #define gasmax 190
+  #define stopwindowsize (uint8_t)((gasmax-gasmin)/stopsubscreens)
+  #define chargewindowsize (uint8_t)((gasmax-gasmin)/chargesubscreens)
 
 //Misc
   #define led GPIO_NUM_2
@@ -512,10 +570,14 @@ references used:
   unsigned long timestamp_mainloopstart=0;
   unsigned long duration_oled=0;
   unsigned long timestamp_oledstart=0;
-  unsigned long duration_oleddraw=0;
-  unsigned long timestamp_oleddraw=0;
-  unsigned long duration_oledi2c=0;
-  unsigned long timestamp_oledi2c=0;
+  unsigned long duration_oled1draw=0;
+  unsigned long timestamp_oled1draw=0;
+  unsigned long duration_oled1i2c=0;
+  unsigned long timestamp_oled1i2c=0;
+  unsigned long duration_oled2draw=0;
+  unsigned long timestamp_oled2draw=0;
+  unsigned long duration_oled2i2c=0;
+  unsigned long timestamp_oled2i2c=0;
   unsigned long duration_telnet=0;
   unsigned long timestamp_telnetstart=0;
 
@@ -536,6 +598,12 @@ void reset_statistics() {
     bledata[j]=0;  
     x1data[j]=0;  
   }
+  speed_min = 0;
+  speed_max = 0;
+  current_min = 0;
+  current_max = 0;
+  watt_min = 0;
+  watt_max = 0;
 }
 
 void start_m365() {
@@ -544,6 +612,19 @@ void start_m365() {
   m365packetstate=m365packetidle;
   reset_statistics();
 }  //startm365
+
+
+
+
+void m365_updatestats() {
+  if (speed_min>escparsed->speed) { speed_min = escparsed->speed; }
+  if (speed_max<escparsed->speed) { speed_max = escparsed->speed; }
+  if (current_min>bmsparsed->current) { current_min = bmsparsed->current; }
+  if (current_max<bmsparsed->current) { current_max = bmsparsed->current; }
+  int32_t currentwatt = (int32_t)((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f);
+  if (watt_min>currentwatt) { watt_min = currentwatt; }
+  if (watt_max<currentwatt) { watt_max = currentwatt; }
+}
 
 void m365_handlerequests() {
   //find next subscribed index
@@ -823,7 +904,9 @@ void telnet_refreshscreen() {
               telnetclient.printf("Packets Received:\r\n  ESC: %05d   BMS: %05d   BLE: %05d   X1: %05d   unhandled: %05d\r\n", packets_rec_esc,packets_rec_bms,packets_rec_ble,packets_rec_x1,packets_rec_unhandled);
               telnetclient.printf("  CRC OK: %05d   CRC FAIL: %05d\r\n   Total: %05d\r\n",packets_crcok,packets_crcfail,packets_rec);
               telnetclient.printf("\r\nTimers:\r\n  Main:   %04.3f ms\r\n  Telnet: %04.3f ms\r\n",(float)duration_mainloop/1000.0f, (float)duration_telnet/1000.0f);
-              telnetclient.printf("  OLED Main: %04.3f ms\r\n  OLED Draw: %04.3f ms\r\n  OLED I2C:  %04.3f ms\r\n",(float)duration_oled/1000.0f,(float)duration_oleddraw/1000.0f,(float)duration_oledi2c/1000.0f);
+              telnetclient.printf("  OLED Main: %04.3f ms\r\n",(float)duration_oled/1000.0f);
+              telnetclient.printf("  OLED1 Draw: %04.3f ms\r\n  OLED1 I2C:  %04.3f ms\r\n",(float)duration_oled1draw/1000.0f,(float)duration_oled1i2c/1000.0f);
+              telnetclient.printf("  OLED2 Draw: %04.3f ms\r\n  OLED2 I2C:  %04.3f ms\r\n",(float)duration_oled2draw/1000.0f,(float)duration_oled2i2c/1000.0f);
               telnetclient.printf("  Request Cycle Loop: %04d ms\r\n  Request last Index: %03d\r\n", duration_requestcycle,requestindex);
               telnetclient.printf("  Time since last Packet: %05d ms\r\n",m365packetlasttimestamp);
      
@@ -1098,14 +1181,12 @@ void handle_wlan() {
         yield();
         //IPAddress myIP = WiFi.softAPIP();
         Serial.printf("### WLAN AP\r\nSSID: %s, AP IP address: ", apssid);  Serial.println( WiFi.softAPIP());
-#ifdef useoled1
-        display.fillRect(0,56,display.width(), 8, BLACK);
-        display.setCursor(0,56);
-        display.print("AP Mode");
-        display.fillRect(0,40,display.width(), 8, BLACK);
-        display.setCursor(0,40);
-        display.print( WiFi.softAPIP());
-        display.display();
+#ifdef useoledxxx //POPUP
+        display1.clearDisplay();
+        display1.setFont();
+        display1.println("AP Mode");
+        display1.print( WiFi.softAPIP());
+        display1.display();
 #endif        
 #ifdef usetelnetserver
         if (telnetstate==telnetoff) {
@@ -1130,11 +1211,11 @@ void handle_wlan() {
         WiFi.onEvent(WiFiEvent);
         WiFi.begin(ssid1, password1);
         wlanconnecttimestamp = millis()+wlanconnecttimeout;
-#ifdef useoled1
-        display.fillRect(0,56,display.width(), 8, BLACK);
-        display.setCursor(0,56);
-        display.printf("W %d",currentssidindex);
-        display.display();  
+#ifdef useoledxxx //POPUP
+        display1.clearDisplay();
+        display1.setFont();
+        display1.printf("W %d",currentssidindex);
+        display1.display();  
 #endif        
         Serial.printf("###  WLan searching for ssidindex %d\r\n",currentssidindex);
         wlanstate = wlansearching;
@@ -1150,11 +1231,11 @@ void handle_wlan() {
               if (currentssidindex==1) { WiFi.begin(ssid2, password2); }
               if (currentssidindex==2) { WiFi.begin(ssid3, password3); }
               wlanconnecttimestamp = millis()+wlanconnecttimeout;
-#ifdef useoled1
-              display.fillRect(0,56,display.width(), 8, BLACK);
-              display.setCursor(0,56);
-              display.printf("W %d",currentssidindex);
-              display.display();
+#ifdef useoledxxx //POPUP
+              display1.clearDisplay();
+              display1.setFont();
+              display1.printf("W %d",currentssidindex);
+              display1.display();
 #endif              
               Serial.printf("### WLan searching for ssidindex %d\r\n",currentssidindex);
             } else {
@@ -1168,15 +1249,13 @@ void handle_wlan() {
           Serial.print(WiFi.SSID());
           Serial.print(", IP is ");
           Serial.println(WiFi.localIP());
-#ifdef useoled1          
-          display.fillRect(0,56,display.width(), 8, BLACK);
-          display.setCursor(0,56);
-          display.print("WC ");
-          display.print(WiFi.SSID());
-          display.fillRect(0,40,display.width(), 8, BLACK);
-          display.setCursor(0,40);
-          display.print(WiFi.localIP());
-          display.display();
+#ifdef useoledxxx //POPUP
+          display1.clearDisplay();
+          display1.setFont();
+          display1.print("WC ");
+          display1.println(WiFi.SSID());
+          display1.print(WiFi.localIP());
+          display1.display();
 #endif          
 #ifdef usetelnetserver
           if (telnetstate==telnetoff) {
@@ -1190,12 +1269,12 @@ void handle_wlan() {
     case wlanconnected:
           if (WiFi.status() != WL_CONNECTED) {
               Serial.println("### WiFi lost connection!");
-#ifdef useoled1
-              display.fillRect(0,56,display.width(), 8, BLACK);
-              display.setCursor(0,56);
-              display.print("W CONN LOST");
-              display.print(WiFi.SSID());
-              display.display();
+#ifdef useoledxxx //POPUP
+              display1.clearDisplay();
+              display1.setFont();
+              display1.println("W CONN LOST");
+              display1.print(WiFi.SSID());
+              display1.display();
 #endif
 #ifdef usetelnetserver
               if (telnetstate!=telnetoff) {
@@ -1211,11 +1290,11 @@ void handle_wlan() {
           //num of connect clients changed
           apnumclientsconnectedlast = apnumclientsconnected;
           Serial.printf("### AP Clients connected changed: %d -> %d\r\n",apnumclientsconnectedlast, apnumclientsconnected);
-#ifdef useoled1
-          display.fillRect(0,56,display.width(), 8, BLACK);
-          display.setCursor(0,56);
-          display.printf("AP Clients %d",apnumclientsconnected);
-          display.display();
+#ifdef useoledxxx //POPUP
+          display1.clearDisplay();
+          display1.setFont();
+          display1.printf("AP Clients %d",apnumclientsconnected);
+          display1.display();
 #endif          
           if (apnumclientsconnected==0) {
               //no one connnected, but there was someone connected.... restart timeout
@@ -1247,12 +1326,11 @@ void handle_wlan() {
         WiFi.disconnect();
         WiFi.mode(WIFI_OFF);
         Serial.println("### WIFI OFF");
-#ifdef useoled1        
-        display.fillRect(0,56,display.width(), 8, BLACK);
-        display.setCursor(0,56);
-        display.print("WLAN OFF");
-        display.fillRect(0,40,display.width(), 8, BLACK);
-        display.display();
+#ifdef useoledxxx //POPUP
+        display1.clearDisplay();
+        display1.setFont();
+        display1.print("WLAN OFF");
+        display1.display();
 #endif
         wlanstate=wlanoff; 
         //STOP OTA    
@@ -1285,34 +1363,49 @@ void handle_wlan() {
 #endif
 
 
+
 void setup() {
 #ifdef useoled1
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin,sclpin);
-  //display.setRotation(1); rotation 0-3 for 0, 90, 180, 270 degree cw
-  display.clearDisplay();
-  //display.drawPixel(10, 10, WHITE); 
-  //display.display();
-  display.setCursor(0,fontsmallbaselinezero);
-  display.setFont(&fontsmall);
-  //display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.println(swversion);
-  display.display();
-  display.setFont();
-  delay(2000);
+  display1.begin(SSD1306_SWITCHCAPVCC, oled1_address, oled1_sda, oled1_scl, false);
+  display1.dim(true);
+  display1.setTextSize(1);
+  display1.setTextColor(WHITE);
+  display1.clearDisplay();
+  display1.setCursor(64,5);
+  //display1.setFont(&fontsmall);
+  display1.print("ESP32 OLED");
+  display1.setCursor(64,20);
+  display1.print("for Xiaomi");
+  display1.setCursor(64,30);
+  display1.print("Mijia365");
+  display1.setCursor(64,55);
+  display1.print(swversion);
+  display1.drawBitmap(0,0,  scooter, 64,64, 1);
+  display1.display();
+  //delay(3000);
 #endif
-  /*
-   * display2.begin(SSD1306_SWITCHCAPVCC, 0x3C, sdapin2,sclpin2);
-  //display.setRotation(0); rotation 0-3 for 0, 90, 180, 270 degree cw
-  display2.clearDisplay();
-  display2.drawPixel(10, 10, WHITE); 
-  display2.display();
-  display2.setTextSize(0);
+#ifdef useoled2
+  display2.begin(SSD1306_SWITCHCAPVCC, oled2_address, oled2_sda, oled2_scl, false);
+  display2.setTextSize(1);
   display2.setTextColor(WHITE);
-  display2.setCursor(0,0);
+  display2.clearDisplay();
+  display2.setCursor(0,fontsmallbaselinezero);
+  display2.setFont(&fontsmall);
   display2.println(swversion);
   display2.display();
-  */
+  //delay(3000);
+#endif
+#if defined useoled1 || defined useoled2
+  delay(2000);
+#endif
+#ifdef useoled1
+  display1.clearDisplay();
+  display1.display();
+#endif
+#ifdef useoled2
+  display2.clearDisplay();
+  display2.display();
+#endif
 
   pinMode(led,OUTPUT);
   digitalWrite(led,LOW);
@@ -1341,14 +1434,22 @@ void setup() {
       client.publish(tmp1, "OTA Starting");
     }
 #endif
+/*#ifdef useoled1
+    display1.clearDisplay();
+    display1.setTextSize(2);
+    display1.setTextColor(WHITE);
+    display1.setCursor(0,0);
+    display1.setFont();
+    display1.println("OTA Start");
+    display1.display();
+#endif*/
 #ifdef useoled1
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setTextColor(WHITE);
-    display.setCursor(0,0);
-    display.setFont();
-    display.println("OTA Start");
-    display.display();
+    display1.clearDisplay();
+    display1.display();
+#endif
+#ifdef useoled2
+    display2.clearDisplay();
+    display2.display();
 #endif
   });
   ArduinoOTA.onEnd([]() {
@@ -1359,15 +1460,15 @@ void setup() {
       client.publish(tmp1, "OTA Done");
     }
 #endif
-#ifdef useoled1
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setTextColor(WHITE);
-    display.setCursor(0,0);
-    display.setFont();
-    display.println("OTA End");
-    display.display();
-#endif
+/*#ifdef useoled1
+    display1.clearDisplay();
+    display1.setTextSize(2);
+    display1.setTextColor(WHITE);
+    display1.setCursor(0,0);
+    display1.setFont();
+    display1.println("OTA End");
+    display1.display();
+#endif*/
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
@@ -1376,13 +1477,18 @@ void setup() {
     if ((progress / (total / 100))>lastprogress) {
       lastprogress = progress / (total / 100);
     }
-    display.clearDisplay();
-    display.setTextSize(3);
-    display.setTextColor(WHITE);
-    display.setCursor(0,0);
-    display.setFont();
-    display.printf("OTA %02u%%", lastprogress);
-    display.display();
+    display1.clearDisplay();
+    display1.setTextSize(1);
+    display1.setTextColor(WHITE);
+    display1.setCursor(0,10);
+    display1.setFont();
+    display1.print("  Updating  Firmware");
+    display1.setCursor(54,50);
+    display1.printf("%02u%%", lastprogress);
+    display1.drawRect(14,25,100,10,WHITE);
+    //display1.drawRect(15,33,14+(uint8_t)lastprogress,39,WHITE);
+    display1.fillRect(14,26,(uint8_t)lastprogress,8,WHITE);
+    display1.display();
 #endif
   });
   ArduinoOTA.onError([](ota_error_t error) {
@@ -1401,13 +1507,13 @@ void setup() {
     }
 #endif
 #ifdef useoled1
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    display.setCursor(0,0);
-    display.setFont();
-    display.printf("OTA ERROR: %u %s", error,tmp1);
-    display.display();
+    display1.clearDisplay();
+    display1.setTextSize(1);
+    display1.setTextColor(WHITE);
+    display1.setCursor(0,0);
+    display1.setFont();
+    display1.printf("OTA ERROR\r\nNr: %u\r\n%s", error,tmp1);
+    display1.display();
     delay(2000); //give user a chance to read before reboot
 #endif    
   });
@@ -1427,32 +1533,6 @@ void handle_led() {
     }
   }
 }
-
-uint8_t oledstate = 0;
-#define oledstop 0
-#define oleddrive 1
-#define oledm365error 2
-#define oledtimeout 3
-#define oledchargestart 4
-#define oledcharging 5
-#define oledchargeend 6
-#define oledcells 7
-
-uint8_t stopsubscreen = 0;
-uint8_t gaswindowsubpos=0;
-#define gassubscreens 7
-#define gasmin 40
-#define gasmax 190
-#define gaswindowsize (uint8_t)((gasmax-gasmin)/gassubscreens)
-
-#define oledwidth 128
-#define oledheight 64
-
-//display.setFont(&FreeSansBold9pt7b);
-#define baselineoffset 13
-#define linespace 1
-
-#define dataoffset 9
 
 void oled_switchscreens() {
   uint8_t oldscreen = oledstate;
@@ -1474,24 +1554,13 @@ void oled_switchscreens() {
   
 
   //charging screens: 
-   //Charge-Start shows Cell Voltages and fades into charging screen
-   //after charge end, we show cell-voltages again
-   //charging screens are disabled asap speed <> 0
-    if (newdata & (escparsed->speed==0) & (bmsparsed->current<0) & ((oledstate!=oledchargestart)&(oledstate!=oledcharging)&(oledstate!=oledchargeend))) { 
-      oledstate=oledchargestart; 
-      timeout_oled=millis()+oledchargestarttimeout;
-      updatescreens=true;
-    }
-    if ((oledstate==oledchargestart) & (millis()>timeout_oled)) { 
+    if (newdata & (escparsed->speed==0) & (bmsparsed->current<0) & (oledstate!=oledcharging)) { 
       oledstate=oledcharging; 
+      //timeout_oled=millis()+oledchargestarttimeout;
       updatescreens=true;
     }
-    if (newdata & (oledstate==oledcharging) & (bmsparsed->current>=0)) { 
-      oledstate=oledchargeend; 
-      updatescreens=true;
-    }
-    if (((oledstate==oledchargestart)|(oledstate==oledcharging)|(oledstate==oledchargeend)) & (escparsed->speed>0)) { 
-      if (escparsed->speed>0) {
+    if ((oledstate==oledcharging) & (abs((float)escparsed->speed/1000.0f)>2.0f)) { 
+      if (abs((float)escparsed->speed/1000.0f)>0.9f) {
         oledstate=oleddrive;  
       } else {
         oledstate=oledstop;  
@@ -1501,370 +1570,410 @@ void oled_switchscreens() {
 
   //switch between driving/stop screens:
     //maybe add a speed treshold like 0.3km/h to keep showing "stop" screen
-    if (newdata & (oledstate==oleddrive) & (escparsed->speed==0)) {
+    //if (newdata & (oledstate==oleddrive) & (escparsed->speed==0)) {
+    if (newdata & (oledstate==oleddrive) & (abs((float)escparsed->speed/1000.0f)<0.5f)) {
     //if (newdata & ((x1parsed->mode==0)|(x1parsed->mode==2))) {
       oledstate=oledstop;
       updatescreens=true;
     }
-    if (newdata & (oledstate==oledstop) & (escparsed->speed>0)) {
+    //if (newdata & (oledstate==oledstop) & (escparsed->speed>0)) {
+    if (newdata & (oledstate==oledstop) & (abs((float)escparsed->speed/1000.0f)>0.9f)) {
+      
     //if (newdata & ((x1parsed->mode==1)|(x1parsed->mode==3))) {
       oledstate=oleddrive;
       updatescreens=true;
     }
 
-  //add switching of subscreens via throttle while we are in STOP screen
+  //switching of subscreens via throttle while we are in STOP mode
   if (newdata & (oledstate==oledstop)) {
     uint8_t oldstopsubscreen = stopsubscreen;
-    stopsubscreen = (bleparsed->throttle-gasmin) / gaswindowsize;
-    gaswindowsubpos = (uint8_t)((float)((bleparsed->throttle-gasmin) % gaswindowsize)*(float)oledwidth/(float)gaswindowsize);
-    if ((stopsubscreen+1)>gassubscreens) { stopsubscreen=gassubscreens-1; }
+    if (bleparsed->throttle>=gasmin) {
+      stopsubscreen = ((bleparsed->throttle-gasmin) / stopwindowsize)+1;
+      windowsubpos = (uint8_t)((float)((bleparsed->throttle-gasmin) % stopwindowsize)*(float)oledwidth/(float)stopwindowsize);
+    } else {
+      stopsubscreen=0;
+      windowsubpos=0;
+    }
+    if ((stopsubscreen)>stopsubscreens) { stopsubscreen=stopsubscreens; }
     if (stopsubscreen!=oldstopsubscreen) { updatescreens = true; }
   }
 
-  //no special condition/screenswitch, just limit the screen update rate
+  //switching of subscreens via throttle while we are in CHARGE mode
+  if (newdata & (oledstate==oledcharging)) {
+    uint8_t oldchargesubscreen = chargesubscreen;
+    if (bleparsed->throttle>=gasmin) {
+      chargesubscreen = ((bleparsed->throttle-gasmin) / chargewindowsize)+1;
+      windowsubpos = (uint8_t)((float)((bleparsed->throttle-gasmin) % chargewindowsize)*(float)oledwidth/(float)chargewindowsize);
+    } else {
+      chargesubscreen=1;
+      windowsubpos=0;
+    }
+    if ((chargesubscreen)>chargesubscreens) { chargesubscreen=chargesubscreens; }
+    if (chargesubscreen!=oldchargesubscreen) { updatescreens = true; }
+  }
+
+  //update with new data, but honor refresh-rate
     if (newdata & (olednextrefreshtimestamp<millis())) { 
+    //if ((olednextrefreshtimestamp<millis())) { 
       updatescreens=true;
       newdata=false; 
     }
 
   //update subscriptions if screen has been changed
-    if (oldscreen!=oledstate) { subscribedrequests=rqsarray[oledstate]; }
+    if (oldscreen!=oledstate) { 
+      //Serial.printf("---OLEDSTATE: %d\r\n",oledstate);
+      subscribedrequests=rqsarray[oledstate];
+    }
+  //reset newdata flag if we consumed it
+    if (updatescreens) { newdata=false; }
 } //oled_switchscreens
 
-void oled_updatescreens() {
-  uint16_t lowest=10000;
-  uint16_t highest=0;
-  timestamp_oleddraw=micros();
-  olednextrefreshtimestamp=millis()+oledrefreshanyscreen;
-  display.clearDisplay();
-  if (oledstate==oleddrive) {
-        display.setCursor(0,fontbigbaselinezero);
-        display.setFont(&fontbig);
-        display.printf("%04.1f", abs((float)escparsed->speed/1000.0f));
-        //display.setFont(&FreeSans9pt7b);
-        display.setFont(&FreeSans18pt7b);
+#ifdef useoled1
+  void oled1_update() {
+    uint16_t lowest=10000;
+    uint16_t highest=0;
+    timestamp_oled1draw=micros();
+    display1.clearDisplay();
+    if (oledstate==oleddrive) {
+/* new version for 2 displays:
+        //speed  
+          display1.setCursor(0,fontbigbaselinezero);
+          display1.setFont(&fontbig);
+          display1.printf("%04.1f", abs((float)escparsed->speed/1000.0f));
+          display1.setFont();
+          display1.setCursor(104,28);
+          display1.println("km/h");
+        //batt percent
+          display1.setFont(&FreeSans18pt7b);
+          display1.printf("%6d", bmsparsed->remainingpercent);
+          display1.setFont(&FreeSans9pt7b); 
+          display1.print("%");
+*/          
+      //Speed
+        display1.setCursor(0,fontbigbaselinezero-5);
+        display1.setFont(&fontbig);
+        display1.printf("%04.1f", abs((float)escparsed->speed/1000.0f));
+        display1.setFont();
+        display1.setCursor(104,28);
+        display1.print("km/h");
+      //Watt
+        display1.setFont(&FreeSans18pt7b);
+        display1.setCursor(0,64);
+        display1.printf("%4.0f",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f));
+        display1.setFont(&FreeSans9pt7b);
+        display1.print("W");
 
         //display.setCursor(0,fontsmallbaselinezero+fontbigheight);
         //display.setCursor(0,baselineoffset*3+linespace*2);
         //display.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/1000.0f);
         //display.setCursor(0,fontsmallbaselinezero+fontbigheight+fontsmallheight);
-        display.setCursor(0,64);
+        //display1.setCursor(0,64);
         //display.printf("%5.0fW    %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
-        display.printf("%5.0f",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f));
-        display.setFont(&FreeSans9pt7b); 
-        display.print("W");
-        display.setCursor(86,dataoffset+baselineoffset*4+linespace*3-2); display.printf("%3d%%",bmsparsed->remainingpercent);
-        display.setFont();
-        display.setCursor(104,28);
-        display.print("km/h");
-        /*display.print()
-        display.setFont();
-        display.setTextSize(0);
-        display.setTextColor(WHITE);
-        display.setCursor(0,0);
-        display.printf("%3.1f km/h\r\n%.2f Volt\r\n%.1f A\r\nBatt %d %%", (float)escparsed->speed/1000.0f,(float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/1000.0f,bmsparsed->remainingpercent);
-        */
-  }
-  if (oledstate==oledstop) {
-        //display.setCursor(0,fontsmallbaselinezero);
-        //display.setFont(&fontsmall);
-        //display.println("STOP");
-        //display.printf("%6.1f\r\n", (float)escparsed->speed/1000.0f);
-        //display.printf("s %d t %d p %d",stopsubscreen, bleparsed->throttle,gaswindowsubpos);
-        //display.drawFastVLine(126,0,(uint8_t)((float)(stopsubscreen+1)*(float)((float)oledheight/(float)gassubscreens)),WHITE);
-        //display.drawFastVLine(127,0,gaswindowsubpos,WHITE);
+        //display1.printf("%5.0f",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f));
+        //display1.setFont(&FreeSans9pt7b); 
+      //batt percent  
+        display1.setFont(&FreeSans9pt7b); 
+        display1.setCursor(86,dataoffset+baselineoffset*4+linespace*3-2); 
+        display1.printf("%3d%%",bmsparsed->remainingpercent);
 
-        display.clearDisplay();
-        display.setFont();
-        display.setCursor(0,0);
-        //display.drawFastHLine(0,8,128,WHITE);
-        display.drawFastHLine(0,8,gaswindowsubpos,WHITE);
-        switch (stopsubscreen) {
-          case 0: //Trip Info: Average Speed, Distance, Time, Average Speed 
-              display.printf("TRIP            (%d/7)",stopsubscreen+1);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Avg:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%5.1f%",(float)escparsed->averagespeed/1000.0f);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Dist:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.printf("%.2fkm",(float)escparsed->tripdistance/100.0f);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Time:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%ds",escparsed->triptime);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Rem:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%.2fkm",(float)escparsed->remainingdistance/100.0f);
-            break;
-          case 1: //Temperatures - Frame temp 1 & 2, Batt Temp 1 & 2
-              display.printf("TEMPERATURE     (%d/7)",stopsubscreen+1);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Batt1:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%3d°C",bmsparsed->temperature[0]-20);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace+1); display.print("Batt2:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace+1); display.printf("%3d°C",bmsparsed->temperature[1]-20);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+(linespace+1)*2); display.print("Frame:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+(linespace+1)*2); display.printf("%.1f°C",(float)escparsed->frametemp2/10.0f);
-              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Frame:");
-              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%.1f°C",(float)escparsed->frametemp2/10.0f);
-            break;
-          case 2: //Batt Info 1: Total Capacity, Remaining, Voltage, Percent
-              display.printf("BATTERY 1       (%d/7)",stopsubscreen+1);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("TotCap:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%5d",bmsparsed->totalcapacity);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Cap:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.printf("%5d",bmsparsed->remainingcapacity);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Volt:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%5.2fV",(float)bmsparsed->voltage/100.0f);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("%:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%3d%%",bmsparsed->remainingpercent);
-            break;
-          case 3: //Batt Info 2: Health/Cycles/Charge Num/Prod Date
-              display.printf("BATTERY 2       (%d/7)",stopsubscreen+1);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Health:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%d",bmsparsed->health);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Cycles:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.printf("%5d",bmsparsed->cycles);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Charge#:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%d",bmsparsed->chargingtimes);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Prod:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.printf("%d-%d-%d",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
-            break;
-
-          case 4: //Cell Voltages
-              display.printf("CELL VOLTAGES   (%d/7)\r\n",stopsubscreen+1);
-              if (bmsparsed->Cell1Voltage>0) { lowest=_min(lowest,bmsparsed->Cell1Voltage); highest=_max(highest,bmsparsed->Cell1Voltage); }
-              if (bmsparsed->Cell2Voltage>0) { lowest=_min(lowest,bmsparsed->Cell2Voltage); highest=_max(highest,bmsparsed->Cell2Voltage); }
-              if (bmsparsed->Cell3Voltage>0) { lowest=_min(lowest,bmsparsed->Cell3Voltage); highest=_max(highest,bmsparsed->Cell3Voltage); }
-              if (bmsparsed->Cell4Voltage>0) { lowest=_min(lowest,bmsparsed->Cell4Voltage); highest=_max(highest,bmsparsed->Cell4Voltage); }
-              if (bmsparsed->Cell5Voltage>0) { lowest=_min(lowest,bmsparsed->Cell5Voltage); highest=_max(highest,bmsparsed->Cell5Voltage); }
-              if (bmsparsed->Cell6Voltage>0) { lowest=_min(lowest,bmsparsed->Cell6Voltage); highest=_max(highest,bmsparsed->Cell6Voltage); }
-              if (bmsparsed->Cell7Voltage>0) { lowest=_min(lowest,bmsparsed->Cell7Voltage); highest=_max(highest,bmsparsed->Cell7Voltage); }
-              if (bmsparsed->Cell8Voltage>0) { lowest=_min(lowest,bmsparsed->Cell8Voltage); highest=_max(highest,bmsparsed->Cell8Voltage); }
-              if (bmsparsed->Cell9Voltage>0) { lowest=_min(lowest,bmsparsed->Cell9Voltage); highest=_max(highest,bmsparsed->Cell9Voltage); }
-              if (bmsparsed->Cell10Voltage>0) { lowest=_min(lowest,bmsparsed->Cell10Voltage); highest=_max(highest,bmsparsed->Cell10Voltage); }
-              //if (bmsparsed->Cell11Voltage>0) { lowest=_min(lowest,bmsparsed->Cell11Voltage); highest=_max(highest,bmsparsed->Cell11Voltage); }
-              //if (bmsparsed->Cell12Voltage>0) { lowest=_min(lowest,bmsparsed->Cell12Voltage); highest=_max(highest,bmsparsed->Cell12Voltage); }
-              display.printf("01: %5.3f ",(float)bmsparsed->Cell1Voltage/1000.0f);
-              display.printf("02: %5.3f  ",(float)bmsparsed->Cell2Voltage/1000.0f);
-              display.printf("03: %5.3f ",(float)bmsparsed->Cell3Voltage/1000.0f);
-              display.printf("04: %5.3f  ",(float)bmsparsed->Cell4Voltage/1000.0f);
-              display.printf("05: %5.3f ",(float)bmsparsed->Cell5Voltage/1000.0f);
-              display.printf("06: %5.3f  ",(float)bmsparsed->Cell6Voltage/1000.0f);
-              display.printf("07: %5.3f ",(float)bmsparsed->Cell7Voltage/1000.0f);
-              display.printf("08: %5.3f  ",(float)bmsparsed->Cell8Voltage/1000.0f);
-              display.printf("09: %5.3f ",(float)bmsparsed->Cell9Voltage/1000.0f);
-              display.printf("10: %5.3f  ",(float)bmsparsed->Cell10Voltage/1000.0f);
-              //display.printf("11: %5.3f ",(float)bmsparsed->Cell11Voltage/1000.0f);
-              //display.printf("12: %5.3f  ",(float)bmsparsed->Cell12Voltage/1000.0f);
-              //display.printf("Tot: %5.2fV D: %5.3fL: %5.3f H: %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f,(float)(lowest)/1000.0f,(float)(highest)/1000.0f);
-              //display.printf("L:  %5.3f H:  %5.3f\r\n", (float)(lowest)/1000.0f,(float)(highest)/1000.0f);
-              //display.printf("T:  %5.2f D:  %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f);
-              display.printf("Max. Diff: %5.3f", (float)(highest-lowest)/1000.0f);
-            break;
-          case 5: //Serials/Versions/Name
-              display.printf("Assets          (%d/7)\r\n",stopsubscreen+1);
-              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("BMS SN:");
-              sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
-              display.printf("BMS   FW: %x.%x.%x\r\nSN: %s\r\n", bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f,tmp1);
-              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.printf("%s",tmp1);
-              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); 
-              //display.print("BMS FW:   ");
-              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); 
-              //display.printf("%x.%x.%x\r\n",bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
-              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); 
-              sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
-              display.printf("ESC   FW: %x.%x.%x\r\nSN: %s\r\n", escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f,tmp1);
-              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.printf("%s",tmp1);
-              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); 
-              //display.print("ESC FW:   ");
-              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); 
-              //display.printf("%x.%x.%x\r\n",escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
-              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); 
-              sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
-              display.printf("Pin: %s\r\n", tmp1);
-              display.printf("Miles:%.2fkm",(float)escparsed->totaldistance/1000.0f);
-              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); 
-              //display.printf("%s",tmp1);
-            break;
-          case 6: //config
-              display.printf("CONFIG          (%d/7)",stopsubscreen+1);
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("KERS:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(80,dataoffset+baselineoffset); display.print("Weak");
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace+1); display.print("Tail Light:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(80,dataoffset+baselineoffset*2+linespace+1); display.print("  Off");
-              display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+(linespace+1)*2); display.print("Cruise:");
-              display.setFont(&FreeSansBold9pt7b); display.setCursor(80,dataoffset+baselineoffset*3+(linespace+1)*2); display.print("   On");
-              //display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Volt:");
-              //display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.print("42.65V");
-            break;
-        }
-
-        /*//display.setFont(); display.setCursor(0,dataoffset); display.print("Volt:");
-        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset); display.print("Volt:");
-        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset); display.print("42.65V");
-        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*2+linespace); display.print("Volt:");
-        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*2+linespace); display.print("42.65V");
-        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display.print("Volt:");
-        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display.print("42.65V");
-        display.setFont(&FreeSans9pt7b); display.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display.print("Volt:");
-        display.setFont(&FreeSansBold9pt7b); display.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display.print("42.65V");
-        */
-/*
- telnetclient.printf("\r\nBLE\r\n Throttle: %03d Brake %03d\r\n",bleparsed->throttle,bleparsed->brake);
-                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
-                telnetclient.printf("\r\n\r\nBMS Serial: %s Version: %x.%x.%x\r\n", tmp1,bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
-                telnetclient.printf(" Capacity Total: %5d mAh Remaining %5d mAh Percent %03d%%\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent);
-                telnetclient.printf(" Temperature1 %3d°C Temperature2 %3d°C Health %05d\r\n",bmsparsed->temperature[1]-20, bmsparsed->temperature[0]-20, bmsparsed->health);
-                telnetclient.printf(" Voltage: %2.2f V Current %05d mA\r\n",(float)bmsparsed->voltage/100.0f, bmsparsed->current);
-                telnetclient.printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage/1000.0f);
-                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
-                telnetclient.printf("\r\n\r\nESC Serial: %s Version: %x.%x.%x\r\n", tmp1,escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
-                sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
-                telnetclient.printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
-                telnetclient.printf(" Distance Total: %.2f km Trip: %.2f km Remaining %.2f km\r\n", (float)escparsed->totaldistance/1000.0f,(float)escparsed->tripdistance/100.0f,(float)escparsed->remainingdistance/100.0f);
-                telnetclient.printf(" Power On Time1: %d s, Power On Time1: %d s, Trip Time: %d s\r\n",escparsed->ontime1,escparsed->ontime2,escparsed->triptime);
-                telnetclient.printf(" FrameTemp1: %05d FrameTemp2: %.1f °C\r\n", (float)escparsed->frametemp1/10.0f, (float)escparsed->frametemp2/10.0f);
-                telnetclient.printf(" Speed: %.2f km/h Avg: %.2f km/h\r\n", (float)escparsed->speed/1000.0f, (float)escparsed->averagespeed/1000.0f);
-                telnetclient.printf(" Batt Percent: %3d%%\r\n",escparsed->battpercent);
-                telnetclient.printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
-                telnetclient.printf("\r\n\r\nX1 Mode %03d LEDs %03d Light ",x1parsed->mode, x1parsed->battleds);
-                if (x1parsed->light==0) { telnetclient.print("OFF "); } else {
-                  if (x1parsed->light==100) { telnetclient.print("ON "); } else {
-*/
-
-  }
-  if (oledstate==oledcharging) {
-        /* v1: Voltage, Current, Watt, Percent, mAh
-        display.setCursor(0,fontsmallbaselinezero);
-        display.setFont(&fontsmall);
-        display.print("CHARGING");
-        display.setCursor(0,fontsmallbaselinezero+fontsmallheight);
-        display.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/100.0f);
-        display.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight);
-        display.printf("%5.0fW   %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
-        display.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight+fontsmallheight);
-        display.printf("%d mAH",bmsparsed->remainingcapacity);
-        //add: Cell highest/lowest/difference
-        //add battery health
-        */
-        display.setCursor(0,fontsmallbaselinezero);
-        display.setFont(&fontsmall);
-        display.setCursor(0,fontsmallbaselinezero);
-        display.print("CHARGING");
-        display.setCursor(0,fontsmallbaselinezero+fontsmallheight);
-        display.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/100.0f);
-        display.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight);
-        display.printf("%5.0fW   %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
-        //display.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight+fontsmallheight);
-        //display.printf("%d mAH",bmsparsed->remainingcapacity);
-  }
-  if (oledstate==oledchargestart) {
-    display.setFont();
-    display.setCursor(0,0);
-    display.println("CHARGING START");
-  }
-  if (oledstate==oledchargeend) {
-    display.setFont();
-    display.setCursor(0,0);
-    display.println("CHARGE FINISHED");
-  }
-  if (oledstate==oledcells) {
-    display.setFont();
-    display.setCursor(0,0);
-    display.println("CELL VOLTAGES");
-  }
-  if ((oledstate==oledcells)|(oledstate==oledchargeend)|(oledstate==oledchargestart)) {
-    if (bmsparsed->Cell1Voltage>0) { lowest=_min(lowest,bmsparsed->Cell1Voltage); highest=_max(highest,bmsparsed->Cell1Voltage); }
-    if (bmsparsed->Cell2Voltage>0) { lowest=_min(lowest,bmsparsed->Cell2Voltage); highest=_max(highest,bmsparsed->Cell2Voltage); }
-    if (bmsparsed->Cell3Voltage>0) { lowest=_min(lowest,bmsparsed->Cell3Voltage); highest=_max(highest,bmsparsed->Cell3Voltage); }
-    if (bmsparsed->Cell4Voltage>0) { lowest=_min(lowest,bmsparsed->Cell4Voltage); highest=_max(highest,bmsparsed->Cell4Voltage); }
-    if (bmsparsed->Cell5Voltage>0) { lowest=_min(lowest,bmsparsed->Cell5Voltage); highest=_max(highest,bmsparsed->Cell5Voltage); }
-    if (bmsparsed->Cell6Voltage>0) { lowest=_min(lowest,bmsparsed->Cell6Voltage); highest=_max(highest,bmsparsed->Cell6Voltage); }
-    if (bmsparsed->Cell7Voltage>0) { lowest=_min(lowest,bmsparsed->Cell7Voltage); highest=_max(highest,bmsparsed->Cell7Voltage); }
-    if (bmsparsed->Cell8Voltage>0) { lowest=_min(lowest,bmsparsed->Cell8Voltage); highest=_max(highest,bmsparsed->Cell8Voltage); }
-    if (bmsparsed->Cell9Voltage>0) { lowest=_min(lowest,bmsparsed->Cell9Voltage); highest=_max(highest,bmsparsed->Cell9Voltage); }
-    if (bmsparsed->Cell10Voltage>0) { lowest=_min(lowest,bmsparsed->Cell10Voltage); highest=_max(highest,bmsparsed->Cell10Voltage); }
-    //if (bmsparsed->Cell11Voltage>0) { lowest=_min(lowest,bmsparsed->Cell11Voltage); highest=_max(highest,bmsparsed->Cell11Voltage); }
-    //if (bmsparsed->Cell12Voltage>0) { lowest=_min(lowest,bmsparsed->Cell12Voltage); highest=_max(highest,bmsparsed->Cell12Voltage); }
-    display.printf("01: %5.3f ",(float)bmsparsed->Cell1Voltage/1000.0f);
-    display.printf("02: %5.3f  ",(float)bmsparsed->Cell2Voltage/1000.0f);
-    display.printf("03: %5.3f ",(float)bmsparsed->Cell3Voltage/1000.0f);
-    display.printf("04: %5.3f  ",(float)bmsparsed->Cell4Voltage/1000.0f);
-    display.printf("05: %5.3f ",(float)bmsparsed->Cell5Voltage/1000.0f);
-    display.printf("06: %5.3f  ",(float)bmsparsed->Cell6Voltage/1000.0f);
-    display.printf("07: %5.3f ",(float)bmsparsed->Cell7Voltage/1000.0f);
-    display.printf("08: %5.3f  ",(float)bmsparsed->Cell8Voltage/1000.0f);
-    display.printf("09: %5.3f ",(float)bmsparsed->Cell9Voltage/1000.0f);
-    display.printf("10: %5.3f  ",(float)bmsparsed->Cell10Voltage/1000.0f);
-    //display.printf("11: %5.3f ",(float)bmsparsed->Cell11Voltage/1000.0f);
-    //display.printf("12: %5.3f  ",(float)bmsparsed->Cell12Voltage/1000.0f);
-    //display.printf("Tot: %5.2fV D: %5.3fL: %5.3f H: %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f,(float)(lowest)/1000.0f,(float)(highest)/1000.0f);
-    display.printf("L:  %5.3f H:  %5.3f\r\n", (float)(lowest)/1000.0f,(float)(highest)/1000.0f);
-    display.printf("T:  %5.2f D:  %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f);
-  }
-  if (oledstate==oledm365error) {
-    display.setFont(&fontbig);
-    display.setCursor(0,fontbigbaselinezero);
-    display.print("ERROR");
-    //https://mimod.ru/en_US/m365errorcodes/
-  }
-  if (oledstate==oledtimeout) {
-    display.setFont(&fontsmall);
-    display.setCursor(0,fontsmallbaselinezero);
-    display.print("DATA\r\nTIMEOUT");
-    display.setFont();
-  }
-
-  //Status ICONS (text for now) on right edge in drive screen - LIGHT On/Off, Ecomode On/Off
-    if(oledstate==oleddrive) {
-      if (x1parsed->light==0x64) { 
-        display.setFont();
-        display.setCursor(120,line1);
-        display.print("L");
-      }
-      display.setFont();
-      display.setCursor(120,line2);
-      if (x1parsed->mode<2) { 
-        display.print("N"); //normal mode
-      } else {
-        display.print("E"); //eco mode
-      }
     }
-  duration_oleddraw = micros()-timestamp_oleddraw;
-  timestamp_oledi2c=micros();
-  display.display();
-  duration_oledi2c = micros()-timestamp_oledi2c;
-} //oled_updatescreenrs
+    if (oledstate==oledstop) {
+          display1.clearDisplay();
+          display1.setFont();
+          display1.setCursor(0,0);
+          display1.drawFastHLine(0,8,windowsubpos,WHITE);
+          switch (stopsubscreen) {
+            case 0: //Trip Info: Average Speed, Distance, Time, Average Speed 
+                display1.printf("TRIP Info",stopsubscreen);
+                display1.drawFastHLine(0,8,128,WHITE);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset); display1.print("Avg:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset); display1.printf("%5.1f%",(float)escparsed->averagespeed/1000.0f);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*2+linespace); display1.print("Dist:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*2+linespace); display1.printf("%.2fkm",(float)escparsed->tripdistance/100.0f);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display1.print("Time:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display1.printf("%ds",escparsed->triptime);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display1.print("Rem:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display1.printf("%.2fkm",(float)escparsed->remainingdistance/100.0f);
+              break;
+
+            case 1: //Trip Info: Average Speed, Distance, Time, Average Speed 
+                display1.printf("TRIP Max        (%d/8)\r\n\r\n",stopsubscreen);
+                display1.printf("min Speed: %04.1f\r\n",(float)speed_min/1000.0f);
+                display1.printf("max Speed: %04.1f\r\n",(float)speed_max/1000.0f);
+                display1.printf("min Current: %4.1fA\r\n",(float)current_min/1000.0f);
+                display1.printf("max Current:  %4.1fA\r\n",(float)current_max/1000.0f);
+                display1.printf("min Watt: %5d\r\n",watt_min);
+                display1.printf("max Watt: %5d\r\n",watt_max);
+              break;
+            case 2: //Temperatures - Frame temp 1 & 2, Batt Temp 1 & 2
+                display1.printf("TEMPERATURE     (%d/8)",stopsubscreen);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset); display1.print("Batt1:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset); display1.printf("%3d°C",bmsparsed->temperature[0]-20);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*2+linespace+1); display1.print("Batt2:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*2+linespace+1); display1.printf("%3d°C",bmsparsed->temperature[1]-20);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*3+(linespace+1)*2); display1.print("Frame:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*3+(linespace+1)*2); display1.printf("%.1f°C",(float)escparsed->frametemp2/10.0f);
+                //display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display1.print("Frame:");
+                //display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display1.printf("%.1f°C",(float)escparsed->frametemp2/10.0f);
+              break;
+            case 3: //Batt Info 1: Total Capacity, Remaining, Voltage, Percent
+                display1.printf("BATTERY 1       (%d/8)",stopsubscreen);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset); display1.print("TotCap:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset); display1.printf("%5d",bmsparsed->totalcapacity);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*2+linespace); display1.print("Cap:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*2+linespace); display1.printf("%5d",bmsparsed->remainingcapacity);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display1.print("Volt:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display1.printf("%5.2fV",(float)bmsparsed->voltage/100.0f);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display1.print("%:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display1.printf("%3d%%",bmsparsed->remainingpercent);
+              break;
+            case 4: //Batt Info 2: Health/Cycles/Charge Num/Prod Date
+                display1.printf("BATTERY 2       (%d/8)",stopsubscreen);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset); display1.print("Health:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset); display1.printf("%d",bmsparsed->health);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*2+linespace); display1.print("Cycles:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*2+linespace); display1.printf("%5d",bmsparsed->cycles);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*3+linespace*2); display1.print("Charge#:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display1.printf("%d",bmsparsed->chargingtimes);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display1.print("Prod:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display1.printf("%d-%d-%d",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
+              break;
+
+            case 5: //Cell Voltages
+                display1.printf("CELL VOLTAGES   (%d/8)\r\n",stopsubscreen);
+                if (bmsparsed->Cell1Voltage>0) { lowest=_min(lowest,bmsparsed->Cell1Voltage); highest=_max(highest,bmsparsed->Cell1Voltage); }
+                if (bmsparsed->Cell2Voltage>0) { lowest=_min(lowest,bmsparsed->Cell2Voltage); highest=_max(highest,bmsparsed->Cell2Voltage); }
+                if (bmsparsed->Cell3Voltage>0) { lowest=_min(lowest,bmsparsed->Cell3Voltage); highest=_max(highest,bmsparsed->Cell3Voltage); }
+                if (bmsparsed->Cell4Voltage>0) { lowest=_min(lowest,bmsparsed->Cell4Voltage); highest=_max(highest,bmsparsed->Cell4Voltage); }
+                if (bmsparsed->Cell5Voltage>0) { lowest=_min(lowest,bmsparsed->Cell5Voltage); highest=_max(highest,bmsparsed->Cell5Voltage); }
+                if (bmsparsed->Cell6Voltage>0) { lowest=_min(lowest,bmsparsed->Cell6Voltage); highest=_max(highest,bmsparsed->Cell6Voltage); }
+                if (bmsparsed->Cell7Voltage>0) { lowest=_min(lowest,bmsparsed->Cell7Voltage); highest=_max(highest,bmsparsed->Cell7Voltage); }
+                if (bmsparsed->Cell8Voltage>0) { lowest=_min(lowest,bmsparsed->Cell8Voltage); highest=_max(highest,bmsparsed->Cell8Voltage); }
+                if (bmsparsed->Cell9Voltage>0) { lowest=_min(lowest,bmsparsed->Cell9Voltage); highest=_max(highest,bmsparsed->Cell9Voltage); }
+                if (bmsparsed->Cell10Voltage>0) { lowest=_min(lowest,bmsparsed->Cell10Voltage); highest=_max(highest,bmsparsed->Cell10Voltage); }
+                //if (bmsparsed->Cell11Voltage>0) { lowest=_min(lowest,bmsparsed->Cell11Voltage); highest=_max(highest,bmsparsed->Cell11Voltage); }
+                //if (bmsparsed->Cell12Voltage>0) { lowest=_min(lowest,bmsparsed->Cell12Voltage); highest=_max(highest,bmsparsed->Cell12Voltage); }
+                display1.printf("01: %5.3f ",(float)bmsparsed->Cell1Voltage/1000.0f);
+                display1.printf("02: %5.3f  ",(float)bmsparsed->Cell2Voltage/1000.0f);
+                display1.printf("03: %5.3f ",(float)bmsparsed->Cell3Voltage/1000.0f);
+                display1.printf("04: %5.3f  ",(float)bmsparsed->Cell4Voltage/1000.0f);
+                display1.printf("05: %5.3f ",(float)bmsparsed->Cell5Voltage/1000.0f);
+                display1.printf("06: %5.3f  ",(float)bmsparsed->Cell6Voltage/1000.0f);
+                display1.printf("07: %5.3f ",(float)bmsparsed->Cell7Voltage/1000.0f);
+                display1.printf("08: %5.3f  ",(float)bmsparsed->Cell8Voltage/1000.0f);
+                display1.printf("09: %5.3f ",(float)bmsparsed->Cell9Voltage/1000.0f);
+                display1.printf("10: %5.3f  ",(float)bmsparsed->Cell10Voltage/1000.0f);
+                //display1.printf("11: %5.3f ",(float)bmsparsed->Cell11Voltage/1000.0f);
+                //display1.printf("12: %5.3f  ",(float)bmsparsed->Cell12Voltage/1000.0f);
+                //display1.printf("Tot: %5.2fV D: %5.3fL: %5.3f H: %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f,(float)(lowest)/1000.0f,(float)(highest)/1000.0f);
+                //display1.printf("L:  %5.3f H:  %5.3f\r\n", (float)(lowest)/1000.0f,(float)(highest)/1000.0f);
+                //display1.printf("T:  %5.2f D:  %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f);
+                display1.printf("Max. Diff: %5.3f", (float)(highest-lowest)/1000.0f);
+              break;
+            case 6: //Serials/Versions/Name
+                display1.printf("Assets          (%d/8)\r\n",stopsubscreen);
+                //display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset); display1.print("BMS SN:");
+                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
+                display1.printf("BMS   FW: %x.%x.%x\r\nSN: %s\r\n", bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f,tmp1);
+                //display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset); display1.printf("%s",tmp1);
+                //display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*2+linespace); 
+                //display1.print("BMS FW:   ");
+                //display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*2+linespace); 
+                //display1.printf("%x.%x.%x\r\n",bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
+                //display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*3+linespace*2); 
+                sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
+                display1.printf("ESC   FW: %x.%x.%x\r\nSN: %s\r\n", escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f,tmp1);
+                //display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*3+linespace*2); display1.printf("%s",tmp1);
+                //display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*4+linespace*3); 
+                //display1.print("ESC FW:   ");
+                //display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*4+linespace*3); 
+                //display1.printf("%x.%x.%x\r\n",escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
+                //display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*4+linespace*3); 
+                sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
+                display1.printf("Pin: %s\r\n", tmp1);
+                display1.printf("Miles:%.2fkm",(float)escparsed->totaldistance/1000.0f);
+                //display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*3+linespace*2); 
+                //display1.printf("%s",tmp1);
+              break;
+              case 7: //ESP Status
+                display1.printf("ESP32 State     (%d/8)\r\n\r\n",stopsubscreen);
+                display1.print("Firmware: "); display1.println(swversion);
+                display1.print("WLAN: ");
+                if (wlanstate==wlansearching) { display1.println("searching..."); }
+                if (wlanstate==wlanconnected) { display1.print("Connected\r\nSSID: "); display1.println(WiFi.SSID()); display1.println(WiFi.localIP()); }
+                if (wlanstate==wlanap) { display1.print("AP Mode\r\nSSID: "); display1.println(WiFi.softAPIP()); display1.println( WiFi.softAPIP());}
+                if (wlanstate==wlanoff) { display1.println("OFF"); }
+                display1.print("BT: OFF");
+              break;
+            case 8: //config
+                display1.printf("CONFIG          (%d/8)",stopsubscreen);
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset); display1.print("KERS:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(80,dataoffset+baselineoffset); display1.print("Weak");
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*2+linespace+1); display1.print("Tail Light:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(80,dataoffset+baselineoffset*2+linespace+1); display1.print("  Off");
+                display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*3+(linespace+1)*2); display1.print("Cruise:");
+                display1.setFont(&FreeSansBold9pt7b); display1.setCursor(80,dataoffset+baselineoffset*3+(linespace+1)*2); display1.print("   On");
+                //display1.setFont(&FreeSans9pt7b); display1.setCursor(0,dataoffset+baselineoffset*4+linespace*3); display1.print("Volt:");
+                //display1.setFont(&FreeSansBold9pt7b); display1.setCursor(64,dataoffset+baselineoffset*4+linespace*3); display1.print("42.65V");
+              break;
+          }
+    }
+    if (oledstate==oledcharging) {
+          display1.clearDisplay();
+          display1.setFont();
+          display1.setCursor(0,0);
+          display1.drawFastHLine(0,8,windowsubpos,WHITE);
+          switch (chargesubscreen) {
+            case 1: //Trip Info: Average Speed, Distance, Time, Average Speed 
+                display1.printf("Charging        (%d/2)",chargesubscreen);
+                display1.setCursor(0,fontsmallbaselinezero+fontsmallheight);
+                display1.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/100.0f);
+                display1.setCursor(0,fontsmallbaselinezero+fontsmallheight+fontsmallheight);
+                display1.printf("%5.0fW   %3d%%",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f),bmsparsed->remainingpercent);
+
+              break;
+            case 2: //Trip Info: Average Speed, Distance, Time, Average Speed 
+                display1.printf("Charging        (%d/2)",chargesubscreen);
+                if (bmsparsed->Cell1Voltage>0) { lowest=_min(lowest,bmsparsed->Cell1Voltage); highest=_max(highest,bmsparsed->Cell1Voltage); }
+                if (bmsparsed->Cell2Voltage>0) { lowest=_min(lowest,bmsparsed->Cell2Voltage); highest=_max(highest,bmsparsed->Cell2Voltage); }
+                if (bmsparsed->Cell3Voltage>0) { lowest=_min(lowest,bmsparsed->Cell3Voltage); highest=_max(highest,bmsparsed->Cell3Voltage); }
+                if (bmsparsed->Cell4Voltage>0) { lowest=_min(lowest,bmsparsed->Cell4Voltage); highest=_max(highest,bmsparsed->Cell4Voltage); }
+                if (bmsparsed->Cell5Voltage>0) { lowest=_min(lowest,bmsparsed->Cell5Voltage); highest=_max(highest,bmsparsed->Cell5Voltage); }
+                if (bmsparsed->Cell6Voltage>0) { lowest=_min(lowest,bmsparsed->Cell6Voltage); highest=_max(highest,bmsparsed->Cell6Voltage); }
+                if (bmsparsed->Cell7Voltage>0) { lowest=_min(lowest,bmsparsed->Cell7Voltage); highest=_max(highest,bmsparsed->Cell7Voltage); }
+                if (bmsparsed->Cell8Voltage>0) { lowest=_min(lowest,bmsparsed->Cell8Voltage); highest=_max(highest,bmsparsed->Cell8Voltage); }
+                if (bmsparsed->Cell9Voltage>0) { lowest=_min(lowest,bmsparsed->Cell9Voltage); highest=_max(highest,bmsparsed->Cell9Voltage); }
+                if (bmsparsed->Cell10Voltage>0) { lowest=_min(lowest,bmsparsed->Cell10Voltage); highest=_max(highest,bmsparsed->Cell10Voltage); }
+                //if (bmsparsed->Cell11Voltage>0) { lowest=_min(lowest,bmsparsed->Cell11Voltage); highest=_max(highest,bmsparsed->Cell11Voltage); }
+                //if (bmsparsed->Cell12Voltage>0) { lowest=_min(lowest,bmsparsed->Cell12Voltage); highest=_max(highest,bmsparsed->Cell12Voltage); }
+                display1.printf("01: %5.3f ",(float)bmsparsed->Cell1Voltage/1000.0f);
+                display1.printf("02: %5.3f  ",(float)bmsparsed->Cell2Voltage/1000.0f);
+                display1.printf("03: %5.3f ",(float)bmsparsed->Cell3Voltage/1000.0f);
+                display1.printf("04: %5.3f  ",(float)bmsparsed->Cell4Voltage/1000.0f);
+                display1.printf("05: %5.3f ",(float)bmsparsed->Cell5Voltage/1000.0f);
+                display1.printf("06: %5.3f  ",(float)bmsparsed->Cell6Voltage/1000.0f);
+                display1.printf("07: %5.3f ",(float)bmsparsed->Cell7Voltage/1000.0f);
+                display1.printf("08: %5.3f  ",(float)bmsparsed->Cell8Voltage/1000.0f);
+                display1.printf("09: %5.3f ",(float)bmsparsed->Cell9Voltage/1000.0f);
+                display1.printf("10: %5.3f  ",(float)bmsparsed->Cell10Voltage/1000.0f);
+                //display1.printf("11: %5.3f ",(float)bmsparsed->Cell11Voltage/1000.0f);
+                //display1.printf("12: %5.3f  ",(float)bmsparsed->Cell12Voltage/1000.0f);
+                //display1.printf("Tot: %5.2fV D: %5.3fL: %5.3f H: %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f,(float)(lowest)/1000.0f,(float)(highest)/1000.0f);
+                display1.printf("L:  %5.3f H:  %5.3f\r\n", (float)(lowest)/1000.0f,(float)(highest)/1000.0f);
+                display1.printf("T:  %5.2f D:  %5.3f", (float)bmsparsed->voltage/100.0f,(float)(highest-lowest)/1000.0f);
+              break;
+          }
+    }
+    if (oledstate==oledm365error) {
+      display1.setFont(&fontbig);
+      display1.setCursor(0,fontbigbaselinezero);
+      display1.print("ERROR");
+      //https://mimod.ru/en_US/m365errorcodes/
+    }
+    if (oledstate==oledtimeout) {
+      display1.setFont(&fontsmall);
+      display1.setCursor(0,20);
+      display1.print("DATA\r\nTIMEOUT");
+      display1.setFont();
+    }
+
+    //Status ICONS (text for now) on right edge in drive screen - LIGHT On/Off, Ecomode On/Off
+      if(oledstate==oleddrive) {
+        if (x1parsed->light==0x64) { 
+          display1.setFont();
+          display1.setCursor(120,line1);
+          display1.print("L");
+        }
+        display1.setFont();
+        display1.setCursor(120,line2);
+        if (x1parsed->mode<2) { 
+          display1.print("N"); //normal mode
+        } else {
+          display1.print("E"); //eco mode
+        }
+      }
+      //if wlan on
+        //if telnet connected TC
+        //if Wlanclient   WC
+        //if wlanap       AP
+    if (oled_blink) {
+      display1.drawPixel(0,0, WHITE);
+    } else {
+      display1.drawPixel(0,0, BLACK);
+    }
+
+    duration_oled1draw = micros()-timestamp_oled1draw;
+    timestamp_oled1i2c=micros();
+    display1.display();
+    duration_oled1i2c = micros()-timestamp_oled1i2c;
+  } //oled1_update
+#endif
+
+#ifdef useoled2
+  void oled2_update() {
+    timestamp_oled2draw=micros();
+    display2.clearDisplay();
+    if (oledstate==oleddrive) {
+        //Watt
+          display2.setCursor(0,fontbigbaselinezero);
+          display2.setFont(&fontbig);
+          display2.printf("%5.0f",((float)(bmsparsed->voltage/100.0f)*(float)bmsparsed->current/100.0f));
+          display2.setFont(&FreeSans9pt7b); 
+          display2.print("W");
+          //display2.printf("%04.1f", abs((float)escparsed->speed/1000.0f));
+          //display2.setFont(&FreeSans9pt7b);
+        //Voltage & Current
+          display2.setFont(&FreeSans18pt7b);
+          display2.setCursor(0,fontsmallbaselinezero+fontbigheight);
+          display2.setCursor(0,baselineoffset*3+linespace*2);
+          display2.printf("%4.1fV %4.1fA", (float)bmsparsed->voltage/100.0f,(float)bmsparsed->current/1000.0f);
+    }
+    if (oledstate==oledstop) {
+          display2.clearDisplay();
+          display2.setFont();
+          display2.setCursor(0,0);
+          display2.print("STOP");
+    }
+    if (oledstate==oledtimeout) {
+      display2.setFont(&fontsmall);
+      display2.setCursor(0,20);
+      display2.print("DATA\r\nTIMEOUT");
+      display2.setFont();
+    }
+
+    //blinking pixel...
+    if (oled_blink) {
+      display2.drawPixel(0,0, WHITE);
+    } else {
+      display2.drawPixel(0,0, BLACK);
+    }
+
+    duration_oled2draw = micros()-timestamp_oled2draw;
+    timestamp_oled2i2c=micros();
+    display2.display();
+    duration_oled2i2c = micros()-timestamp_oled2i2c;
+  } //oled2_update
+#endif
 
 void handle_oled() {
   timestamp_oledstart=micros();
+  
   oled_switchscreens();
+  //updatescreens=true;
   if (updatescreens) {
-    oled_updatescreens();
-    //Serial.printf("---OLED----- %d\r\n",millis());
+    olednextrefreshtimestamp=millis()+oledrefreshanyscreen;
+    #ifdef useoled1
+      oled1_update();
+    #endif
+    #ifdef useloed2
+      oled2_update();
+    #endif
+    //Serial.printf("---OLED----- %02d %d\r\n",oledstate, millis());
     updatescreens=false;
   }
   duration_oled = micros()-timestamp_oledstart;
+  oled_blink!=oled_blink;
 }
-
-/*
-telnetclient.printf("\r\nBLE\r\n Throttle: %03d Brake %03d\r\n",bleparsed->throttle,bleparsed->brake);
-sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",bmsparsed->serial[0],bmsparsed->serial[1],bmsparsed->serial[2],bmsparsed->serial[3],bmsparsed->serial[4],bmsparsed->serial[5],bmsparsed->serial[6],bmsparsed->serial[7],bmsparsed->serial[8],bmsparsed->serial[9],bmsparsed->serial[10],bmsparsed->serial[11],bmsparsed->serial[12],bmsparsed->serial[13]);
-telnetclient.printf("\r\n\r\nBMS Serial: %s Version: %x.%x.%x\r\n", tmp1,bmsparsed->fwversion[1],(bmsparsed->fwversion[0]&0xf0)>>4,bmsparsed->fwversion[0]&0x0f);
-telnetclient.printf(" Capacity Total: %5d mAh Remaining %5d mAh Percent %03d%%\r\n",bmsparsed->totalcapacity, bmsparsed->remainingcapacity, bmsparsed->remainingpercent);
-telnetclient.printf(" Temperature1 %3d°C Temperature2 %3d°C Health %05d\r\n",bmsparsed->temperature[1]-20, bmsparsed->temperature[0]-20, bmsparsed->health);
-telnetclient.printf(" Production Date: %d-%d-%d ",((bmsparsed->proddate)&0xFE00)>>9,((bmsparsed->proddate)&0x1E0)>>5,(bmsparsed->proddate)&0x1f);
-telnetclient.printf(" Charging Cycles: %d Charging Times: %d\r\n",bmsparsed->cycles,bmsparsed->chargingtimes);
-telnetclient.printf(" Voltage: %2.2f V Current %05d mA\r\n",(float)bmsparsed->voltage/100.0f, bmsparsed->current);
-telnetclient.printf(" C1: %1.3f C2: %1.3f C3: %1.3f C4: %1.3f C5: %1.3f C6: %1.3f C7: %1.3f C8: %1.3f C9: %1.3f C10: %1.3f\r\n",(float)bmsparsed->Cell1Voltage/1000.0f,(float)bmsparsed->Cell2Voltage/1000.0f,(float)bmsparsed->Cell3Voltage/1000.0f,(float)bmsparsed->Cell4Voltage/1000.0f,(float)bmsparsed->Cell5Voltage/1000.0f,(float)bmsparsed->Cell6Voltage/1000.0f,(float)bmsparsed->Cell7Voltage/1000.0f,(float)bmsparsed->Cell8Voltage/1000.0f,(float)bmsparsed->Cell9Voltage/1000.0f,(float)bmsparsed->Cell10Voltage/1000.0f);
-sprintf(tmp1,"%c%c%c%c%c%c%c%c%c%c%c%c%c%c",escparsed->serial[0],escparsed->serial[1],escparsed->serial[2],escparsed->serial[3],escparsed->serial[4],escparsed->serial[5],escparsed->serial[6],escparsed->serial[7],escparsed->serial[8],escparsed->serial[9],escparsed->serial[10],escparsed->serial[11],escparsed->serial[12],escparsed->serial[13]);
-telnetclient.printf("\r\n\r\nESC Serial: %s Version: %x.%x.%x\r\n", tmp1,escparsed->fwversion[1],(escparsed->fwversion[0]&0xf0)>>4,escparsed->fwversion[0]&0x0f);
-sprintf(tmp1,"%c%c%c%c%c%c",escparsed->pin[0],escparsed->pin[1],escparsed->pin[2],escparsed->pin[3],escparsed->pin[4],escparsed->pin[5]);
-telnetclient.printf(" Pin: %s Error %05d\r\n",tmp1,escparsed->error);
-telnetclient.printf(" Distance Total: %.2f km Trip: %.2f km Remaining %.2f km\r\n", (float)escparsed->totaldistance/1000.0f,(float)escparsed->tripdistance/100.0f,(float)escparsed->remainingdistance/100.0f);
-telnetclient.printf(" Power On Time1: %d s, Power On Time1: %d s, Trip Time: %d s\r\n",escparsed->ontime1,escparsed->ontime2,escparsed->triptime);
-telnetclient.printf(" FrameTemp1: %05d FrameTemp2: %.1f °C\r\n", (float)escparsed->frametemp1/10.0f, (float)escparsed->frametemp2/10.0f);
-telnetclient.printf(" Speed: %.2f km/h Avg: %.2f km/h\r\n", (float)escparsed->speed/1000.0f, (float)escparsed->averagespeed/1000.0f);
-telnetclient.printf(" Batt Percent: %3d%%\r\n",escparsed->battpercent);
-telnetclient.printf(" Ecomode: %05d Kers: %05d Cruisemode: %05d Taillight: %05d\r\n", escparsed->ecomode, escparsed->kers, escparsed->cruisemode, escparsed->taillight);
-telnetclient.printf("\r\n\r\nX1 Mode %03d LEDs %03d Light ",x1parsed->mode, x1parsed->battleds);
-               
-               */
 
 void loop() {
   timestamp_mainloopstart=micros();
@@ -1876,20 +1985,19 @@ void loop() {
     m365_receiver(); 
     m365_handlepacket();
   }
-  //m365_handlerequests();
-  #ifdef debug_dump_states
-    print_states();
-  #endif
+  if (newdata) {
+    m365_updatestats();
+  }
   //m365_detectapp(); //detect if smartphone is connected and requests data, so we stay quiet
-  //m365_requestor();
-  handle_led();
-#ifdef useoled1
   handle_oled();
-#endif  
+  ArduinoOTA.handle();
+  handle_led();
 #ifdef usemqtt
   client.loop();
 #endif
-  ArduinoOTA.handle();
+  #ifdef debug_dump_states
+    print_states();
+  #endif
   duration_mainloop=micros()-timestamp_mainloopstart;
 }
 
