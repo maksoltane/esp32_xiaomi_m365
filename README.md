@@ -27,6 +27,7 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - added boilerplate screen in stop mode
 - fixed display lock by wlan-search
 - added charge subscreen with cell voltages
+- Telnet on Port 36525 with packet decode/dump from M365 Bus ("read only")
 
 
 # Todos

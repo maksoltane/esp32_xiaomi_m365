@@ -40,7 +40,7 @@ references used:
  *  change the includes in this file (see display section below)
  */
 
-#define swversion "18.07.09"
+#define swversion "18.07.10"
 
 //functional modules
   #define useoled1 //comment out to disable oled functionality
@@ -787,7 +787,7 @@ void m365_receiver() { //recieves data until packet is complete
           #ifdef usepacketserver
             if (packetclient && packetclient.connected()) { 
               sprintf(tmp1,"55 AA %02X ", len-1);
-              sprintf(tmp2,"CRC %02X %02X [CRCCalc:%04X]\r\n", crc1,crc2,crccalc);
+              sprintf(tmp2,"%02X %02X [CRCCalc:%04X]\r\n", crc1,crc2,crccalc);
               switch (sbuf[i_address]) {
                 case address_bms:
                     packetclient.print(ansiRED);
