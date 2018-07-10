@@ -49,6 +49,7 @@ references used:
   //#define usewlanapmode //NOT IMPLEMENTED  comment out to disable Wifi Access Poiint functionality
   #define usetelnetserver //comment out to disable telnet status/telemetrie server, this also disables RAW Server (so only mqtt might be left for leaving wifi activated)
   //#define userawserver //comment out to disable RAW Serial Data BUS Stream on Port 36524, NOT VERIFIED against wired-data-stream
+  #define usepacketserver //comment out to disable PACKET Decode on Port 36525
   //#define usemqtt //NOT IMPLEMENTED comment out to disable mqtt functionality
 
 //DEBUG Settings
@@ -211,8 +212,14 @@ references used:
 //TELNET
   WiFiServer telnetserver(36523);
   WiFiClient telnetclient;
-  WiFiServer rawserver(36524);
-  WiFiClient rawclient;
+  #ifdef userawserver
+    WiFiServer rawserver(36524);
+    WiFiClient rawclient;
+  #endif
+  #ifdef usepacketserver
+    WiFiServer packetserver(36525);
+    WiFiClient packetclient;
+  #endif
   uint8_t telnetstate = 0;
   uint8_t telnetstateold = 0;
   uint8_t telnetrawstate = 0;
@@ -777,6 +784,40 @@ void m365_receiver() { //recieves data until packet is complete
       case m365receiverpacket5: //we are waiting for 2nd CRC byte
           crc2 = newbyte;
           crccalc = crccalc ^ 0xffff;
+          #ifdef usepacketserver
+            if (packetclient && packetclient.connected()) { 
+              sprintf(tmp1,"55 AA %02X ", len-1);
+              sprintf(tmp2,"CRC %02X %02X [CRCCalc:%04X]\r\n", crc1,crc2,crccalc);
+              switch (sbuf[i_address]) {
+                case address_bms:
+                    packetclient.print(ansiRED);
+                    packetclient.print("BMS: ");
+                  break;
+                case address_esc:
+                    packetclient.print(ansiGRN);
+                    packetclient.print("ESC: ");
+                  break;
+                case address_ble:
+                    packetclient.print(ansiBLU);
+                    packetclient.print("BLE: ");
+                  break;
+                case address_x1:
+                    packetclient.print(ansiBLUF);
+                    packetclient.print("X1 : ");
+                  break;
+                default:
+                    packetclient.print(ansiREDF);
+                    packetclient.print("???: ");
+                  break;
+                } //switch                else {
+              packetclient.print(ansiEND);
+              packetclient.print(tmp1);
+              for(i = 0; i < len; i++){
+                packetclient.printf("%02X ",sbuf[i]);
+              } //for i...
+              packetclient.print(tmp2);
+            }
+          #endif
           #ifdef debug_dump_rawpackets
             sprintf(tmp1,"Packet received: 55 AA %02X ", len-1);
             sprintf(tmp2,"CRC %02X %02X %04X\r\n", crc1,crc2,crccalc);
@@ -1003,17 +1044,38 @@ void handle_telnet() {
     case telnetturnon:
         telnetserver.begin();
         telnetserver.setNoDelay(true);
-#ifdef userawserver
-        rawserver.begin();
-        rawserver.setNoDelay(true);
-#endif        
-        Serial.print("### Telnetserver @ ");
+        Serial.print("### Telnet Debug Server @ ");
         if (wlanstate==wlanap) {
           Serial.print(WiFi.softAPIP());  
         } else {
           Serial.print(WiFi.localIP());  
         }
-        Serial.println(":36523, RAW Serial Bus Data @ 36524");
+        Serial.println(":36523");
+#ifdef userawserver
+        rawserver.begin();
+        rawserver.setNoDelay(true);
+        Serial.print("### Telnet RAW Server @ ");
+        if (wlanstate==wlanap) {
+          Serial.print(WiFi.softAPIP());  
+        } else {
+          Serial.print(WiFi.localIP());  
+        }
+        Serial.println(":36524");
+#endif        
+#ifdef usepacketserver
+        packetserver.begin();
+        packetserver.setNoDelay(true);
+        Serial.print("### Telnet PACKET Server @ ");
+        if (wlanstate==wlanap) {
+          Serial.print(WiFi.softAPIP());  
+        } else {
+          Serial.print(WiFi.localIP());  
+        }
+        Serial.println(":36525");
+#endif        
+
+        
+
         telnetstate = telnetlistening;
         userconnecttimestamp = millis()+userconnecttimeout;  
       break;
@@ -1058,6 +1120,24 @@ void handle_telnet() {
             //}
           }
 #endif
+#ifdef usepacketserver
+          if (packetserver.hasClient()) {
+            //for(i = 0; i < MAX_SRV_CLIENTS; i++){
+              //find free/disconnected spot
+              if (!packetclient || !packetclient.connected()){
+                if(packetclient) packetclient.stop();
+                packetclient = packetserver.available();
+                if (!packetclient) Serial.println("available broken");
+                Serial.print("### Telnet PACKET New client: ");
+                Serial.println(packetclient.remoteIP());
+                telnetstate = telnetclientconnected;
+                ledontime=250; ledofftime=250; ledcurrenttime = millis();
+                //telnetnextrefreshtimestamp=millis()+telnetrefreshanyscreen;
+                //break;
+              }
+            //}
+          }
+#endif
           if (userconnecttimestamp<millis()) {
             telnetstate = telnetturnoff;
           }
@@ -1071,6 +1151,10 @@ void handle_telnet() {
 #ifdef userawserver
         if (rawclient && rawclient.connected()) { hc=true; }
 #endif
+#ifdef usepacketserver
+        if (packetclient && packetclient.connected()) { hc=true; }
+#endif
+
         if (!hc) {
           //no more clients, restart listening timer....
           telnetstate = telnetturnon;
@@ -1117,6 +1201,10 @@ void handle_telnet() {
 #ifdef userawserver
         if (rawclient) rawclient.stop();
 #endif        
+#ifdef usepacketserver
+        if (packetclient) packetclient.stop();
+#endif
+
         telnetstate = telnetturnoff;
       break;
     case telnetturnoff:
@@ -1124,6 +1212,10 @@ void handle_telnet() {
 #ifdef userawserver
         rawserver.end();
 #endif      
+#ifdef usepacketserver
+        packetserver.end();
+#endif
+
         wlanstate=wlanturnoff; 
         telnetstate = telnetoff;
       break;
@@ -1320,6 +1412,10 @@ void handle_wlan() {
 #ifdef userawserver
         if (rawclient) rawclient.stop();
 #endif
+#ifdef usepacketserver
+        if (packetclient) packetclient.stop();
+#endif
+
 
         ArduinoOTA.end();
         WiFi.softAPdisconnect();
@@ -1371,14 +1467,13 @@ void setup() {
   display1.setTextSize(1);
   display1.setTextColor(WHITE);
   display1.clearDisplay();
-  display1.setCursor(64,5);
-  //display1.setFont(&fontsmall);
+  display1.setCursor(35,5);
   display1.print("ESP32 OLED");
-  display1.setCursor(64,20);
-  display1.print("for Xiaomi");
-  display1.setCursor(64,30);
-  display1.print("Mijia365");
-  display1.setCursor(64,55);
+  //display1.setCursor(64,20);
+  //display1.print("for");
+  display1.setCursor(35,25);
+  display1.print("Xiaomi Mijia365");
+  display1.setCursor(80,55);
   display1.print(swversion);
   display1.drawBitmap(0,0,  scooter, 64,64, 1);
   display1.display();
