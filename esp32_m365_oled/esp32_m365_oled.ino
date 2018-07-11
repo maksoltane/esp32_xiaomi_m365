@@ -12,11 +12,13 @@ references used:
 #elif defined(ESP8266)
   #include <ESP8266WiFi.h>
   #include <WiFiUdp.h>
+  WiFiEventHandler stationConnectedHandler;
+  WiFiEventHandler stationDisconnectedHandler;
 #else
   #error Platform not supported
 #endif
 
-#include <endian.h>
+//#include <endian.h>
 #include <ArduinoOTA.h>
 
 /* Modifications to ADAFRUIT SSD1306 Library 1.02for ESP32:
@@ -40,7 +42,7 @@ references used:
  *  change the includes in this file (see display section below)
  */
 
-#define swversion "18.07.10"
+#define swversion "18.07.11"
 
 //functional modules
   #define useoled1 //comment out to disable oled functionality
@@ -70,23 +72,26 @@ references used:
 
 //OLED
 #ifdef useoled1
-    #define oled1_scl GPIO_NUM_4 //working wemos fake board
-    #define oled1_sda GPIO_NUM_16 //working wemos fake board
-    #define oled1_reset -1
-    #define oled1_address 0x3C
+    #ifdef ESP32
+      #define oled_scl GPIO_NUM_4 //working wemos fake board
+      #define oled_sda GPIO_NUM_16 //working wemos fake board
     //#define sclpin GPIO_NUM_15 //working ttgo board
     //#define sdapin GPIO_NUM_4  //working ttgo board
     //#define sclpin GPIO_NUM_4 //working ttgo board
     //#define sdapin GPIO_NUM_0  //working ttgo board
     //#define sclpin GPIO_NUM_23 //working ttgo board
     //#define sdapin GPIO_NUM_5  //working ttgo board
+    #endif
+    #ifdef ESP8266
+      #define oled_scl 4
+      #define oled_sda 5
+    #endif
+    #define oled_reset -1
+    #define oled1_address 0x3C
 #endif
 
 #if defined useoled2
-    #define oled2_scl GPIO_NUM_32 //working wemos fake board
-    #define oled2_sda GPIO_NUM_21 //working wemos fake board
-    #define oled2_reset -1
-    #define oled2_address 0x3C
+    #define oled2_address 0x3D
 
     #ifndef useoled1
       #error "useoled2 defined, but useoled1 not defined"
@@ -95,15 +100,14 @@ references used:
 
 #if (defined useoled1 && !defined useoled2)
     #include <Adafruit_SSD1306.h>
-    Adafruit_SSD1306 display1(oled1_reset);
+    Adafruit_SSD1306 display1(oled_reset);
     //#define display2 display1
 #endif
 
 #if (defined useoled1 && defined useoled2)
-    #include <Adafruit_SSD1306_0.h>
-    #include <Adafruit_SSD1306_1.h>
-    Adafruit_SSD1306_0 display1(oled1_reset);
-    Adafruit_SSD1306_1 display2(oled2_reset);
+    #include <Adafruit_SSD1306.h>
+    Adafruit_SSD1306 display1(oled_reset);
+    Adafruit_SSD1306 display2(oled_reset);
 #endif
 
 #if (defined useoled1 || defined useoled2)
@@ -280,24 +284,33 @@ references used:
   * to
   *  uart->dev->conf1.rxfifo_full_thrhd = 1;
   */
-  HardwareSerial M365Serial(2);  // UART1/Serial1 pins RX 16, TX17
   //#define UART2RX GPIO_NUM_5 //TTGO Test board
   //#define UART2TX GPIO_NUM_17 //TTGO Test board
   //#define UART2RXunused GPIO_NUM_23 //TTGO Test board; ESP32 does not support RX or TX only modes - so we remap the rx pin to a unused gpio during sending
-  #define UART2RX GPIO_NUM_23 //Wemos board
-  #define UART2TX GPIO_NUM_5 //Wemos board
-  #define UART2RXunused GPIO_NUM_19 //TTGO Test board; ESP32 does not support RX or TX only modes - so we remap the rx pin to a unused gpio during sending
 
   //custom pins see here: http://www.iotsharing.com/2017/05/how-to-use-serial-arduino-esp32-print-debug.html?m=1
   //enable rx/tx only  modes see: https://github.com/esp8266/Arduino/blob/master/cores/esp8266/HardwareSerial.h
   #ifdef ESP32
-    #define Serial1Full M365Serial.begin(115200,SERIAL_8N1, UART2RX, UART2TX)
+    #define DebugSerial Serial //Debuguart = default Serial Port/UART0
+    HardwareSerial M365Serial(2);  // UART2for M365
+    #define UART2RX GPIO_NUM_23 //Wemos board
+    #define UART2TX GPIO_NUM_5 //Wemos board
+    #define UART2RXunused GPIO_NUM_19 //TTGO Test board; ESP32 does not support RX or TX only modes - so we remap the rx pin to a unused gpio during sending
+    #define M365SerialFull M365Serial.begin(115200,SERIAL_8N1, UART2RX, UART2TX);
     //#define Serial1RX M365Serial.begin(115200,SERIAL_8N1, UART2RX, -1)
-    #define Serial1TX M365Serial.begin(115200,SERIAL_8N1, UART2RXunused, UART2TX)
+    #define M365SerialTX M365Serial.begin(115200,SERIAL_8N1, UART2RXunused, UART2TX);
   #elif defined(ESP8266)
-    #define Serial1Full M365Serial.begin(115200,SERIAL_8N1, UART_FULL, UART2RX, UART2TX)
-    //#define Serial1RX M365Serial.begin(115200,SERIAL_8N1, UART_RX_ONLY, UART2RX, UART2TX)
-    #define Serial1TX M365Serial.begin(115200,SERIAL_8N1, UART_TX_ONLY, UART2RX, UART2TX)
+    #define DebugSerial Serial1 //UART1 is TX only, will be mapped to GPIO2 (-> Debug output will be there)
+    #define M365Serial Serial  // UART0 will be remapped to GPIO 13(RX) / 15 (TX) and used for M365 Communication
+    #define UART2RX 2 //Wemos board
+    #define UART2TX 4 //Wemos board
+
+    #define M365SerialFull M365Serial.begin(115200,SERIAL_8N1, (SerialMode)UART_FULL); M365Serial.swap();
+    //#define Serial1RX M365Serial.begin(115200,SERIAL_8N1, UART_RX_ONLY, UART2RX, UART2TX); M365Serial.swap();
+    #define M365SerialTX M365Serial.begin(115200,SERIAL_8N1, (SerialMode)UART_TX_ONLY); M365Serial.swap();
+
+
+    //TEST M365Serial.setRxBufferSize(1);
   #endif
 
 
@@ -561,7 +574,12 @@ references used:
   #define chargewindowsize (uint8_t)((gasmax-gasmin)/chargesubscreens)
 
 //Misc
-  #define led GPIO_NUM_2
+  #ifdef ESP32
+    #define led GPIO_NUM_2
+  #endif
+  #ifdef ESP8266
+    #define led 2
+  #endif
   int ledontime = 200;
   int ledofftime = 10000;
   unsigned long ledcurrenttime = 100;
@@ -614,7 +632,7 @@ void reset_statistics() {
 }
 
 void start_m365() {
-  Serial1Full;
+  M365SerialFull
   m365receiverstate = m365receiverready;
   m365packetstate=m365packetidle;
   reset_statistics();
@@ -637,10 +655,10 @@ void m365_handlerequests() {
   //find next subscribed index
     uint8_t startindex = requestindex;
     while (!(subscribedrequests&(1<<requestindex)))  {
-      //Serial.printf("skipping RQ index %d\r\n",requestindex+1);
+      //DebugSerial.printf("skipping RQ index %d\r\n",requestindex+1);
       requestindex++;
       if (requestindex==requestmax) {
-          //Serial.println("rollover in rqloop1");
+          //DebugSerial.println("rollover in rqloop1");
           requestindex=0; 
           duration_requestcycle=millis()-timestamp_requeststart;
           timestamp_requeststart=millis(); 
@@ -650,7 +668,7 @@ void m365_handlerequests() {
 
   //request data for current index if we are interested in
   if (subscribedrequests&(1<<requestindex)) {
-    //Serial.printf("requesting RQ index %d\r\n",requestindex+1);
+    //DebugSerial.printf("requesting RQ index %d\r\n",requestindex+1);
     if (requests[requestindex][0]==address_bms) {
       request_bms[bms_request_offset] = requests[requestindex][1];
       request_bms[bms_request_len] = requests[requestindex][2];
@@ -680,17 +698,17 @@ void m365_handlerequests() {
       requests_sent_esc++;
     } //if address address_esc
   } else {
-    //Serial.printf("skipping RQ index %d\r\n",requestindex+1);
+    //DebugSerial.printf("skipping RQ index %d\r\n",requestindex+1);
   }
   //prepare next requestindex for next call
   requestindex++;
   if (requestindex==requestmax) { 
-    //Serial.println("rollover in rqloop2");
+    //DebugSerial.println("rollover in rqloop2");
     requestindex=0; 
     duration_requestcycle=millis()-timestamp_requeststart;
     timestamp_requeststart=millis();
   }
-  //Serial.printf("---REQUEST-- %d\r\n",millis());
+  //DebugSerial.printf("---REQUEST-- %d\r\n",millis());
 } //m365_handlerequests
 
 void m365_handlepacket() {
@@ -702,11 +720,11 @@ void m365_handlepacket() {
 
     #ifdef debug_dump_packetdecode
       sprintf(tmp1,"[%03d] PACKET Len %02X Addr %02X HZ %02X Offset %02X CRC %04X Payload: ",m365packetlasttimestamp,len,sbuf[i_address],sbuf[i_hz],sbuf[i_offset], crccalc);
-      Serial.print(tmp1);
+      DebugSerial.print(tmp1);
       for(i = 0; i < len-3; i++){
-        Serial.printf("%02X ",sbuf[i_payloadstart+i]);
+        DebugSerial.printf("%02X ",sbuf[i_payloadstart+i]);
       }
-      Serial.println("");
+      DebugSerial.println("");
       /*for(i = 0; i < MAX_SRV_CLIENTS; i++){
         if (serverClients[i] && serverClients[i].connected()){
           serverClients[i].write(tmp1,37);
@@ -821,11 +839,11 @@ void m365_receiver() { //recieves data until packet is complete
           #ifdef debug_dump_rawpackets
             sprintf(tmp1,"Packet received: 55 AA %02X ", len-1);
             sprintf(tmp2,"CRC %02X %02X %04X\r\n", crc1,crc2,crccalc);
-            Serial.print(tmp1);
+            DebugSerial.print(tmp1);
             for(i = 0; i < len; i++){
-             Serial.printf("%02X ",sbuf[i]);
+             DebugSerial.printf("%02X ",sbuf[i]);
             }
-            Serial.print(tmp2);
+            DebugSerial.print(tmp2);
             /*
             for(i = 0; i < MAX_SRV_CLIENTS; i++){
               if (serverClients[i] && serverClients[i].connected()){
@@ -851,11 +869,11 @@ void m365_receiver() { //recieves data until packet is complete
         if (sbuf[i_address]==0x20 && sbuf[i_hz]==0x65 && sbuf[i_offset]==0x00 ) {
           //senddata = true;
           m365_handlerequests();
-          Serial.printf("---REQUEST-- %d\r\n",millis());
+          DebugSerial.printf("---REQUEST-- %d\r\n",millis());
         }
         break;
     } //switch
-    //Serial.printf("#S# %d\r\n",M365Serial.available());
+    //DebugSerial.printf("#S# %d\r\n",M365Serial.available());
   }//serial available
   
 } //m365_receiver
@@ -1032,7 +1050,7 @@ void telnet_refreshscreen() {
         yield();
     }
   //} //i 0 to maxclients
-  //Serial.printf("---TELNET--- %d\r\n",millis());
+  //DebugSerial.printf("---TELNET--- %d\r\n",millis());
 }
 
 void handle_telnet() {
@@ -1044,34 +1062,34 @@ void handle_telnet() {
     case telnetturnon:
         telnetserver.begin();
         telnetserver.setNoDelay(true);
-        Serial.print("### Telnet Debug Server @ ");
+        DebugSerial.print("### Telnet Debug Server @ ");
         if (wlanstate==wlanap) {
-          Serial.print(WiFi.softAPIP());  
+          DebugSerial.print(WiFi.softAPIP());  
         } else {
-          Serial.print(WiFi.localIP());  
+          DebugSerial.print(WiFi.localIP());  
         }
-        Serial.println(":36523");
+        DebugSerial.println(":36523");
 #ifdef userawserver
         rawserver.begin();
         rawserver.setNoDelay(true);
-        Serial.print("### Telnet RAW Server @ ");
+        DebugSerial.print("### Telnet RAW Server @ ");
         if (wlanstate==wlanap) {
-          Serial.print(WiFi.softAPIP());  
+          DebugSerial.print(WiFi.softAPIP());  
         } else {
-          Serial.print(WiFi.localIP());  
+          DebugSerial.print(WiFi.localIP());  
         }
-        Serial.println(":36524");
+        DebugSerial.println(":36524");
 #endif        
 #ifdef usepacketserver
         packetserver.begin();
         packetserver.setNoDelay(true);
-        Serial.print("### Telnet PACKET Server @ ");
+        DebugSerial.print("### Telnet PACKET Server @ ");
         if (wlanstate==wlanap) {
-          Serial.print(WiFi.softAPIP());  
+          DebugSerial.print(WiFi.softAPIP());  
         } else {
-          Serial.print(WiFi.localIP());  
+          DebugSerial.print(WiFi.localIP());  
         }
-        Serial.println(":36525");
+        DebugSerial.println(":36525");
 #endif        
 
         
@@ -1086,10 +1104,10 @@ void handle_telnet() {
                 if (!telnetclient || !telnetclient.connected()){
                   if(telnetclient) telnetclient.stop();
                   telnetclient = telnetserver.available();
-                  if (!telnetclient) Serial.println("available broken");
-                  Serial.print("### Telnet New client: ");
-                  Serial.print(i); Serial.print(' ');
-                  Serial.println(telnetclient.remoteIP());
+                  if (!telnetclient) DebugSerial.println("available broken");
+                  DebugSerial.print("### Telnet New client: ");
+                  DebugSerial.print(i); DebugSerial.print(' ');
+                  DebugSerial.println(telnetclient.remoteIP());
                   telnetstate = telnetclientconnected;
                   ledontime=250; ledofftime=250; ledcurrenttime = millis();
                   telnetnextrefreshtimestamp=millis()+telnetrefreshanyscreen;
@@ -1099,7 +1117,7 @@ void handle_telnet() {
             /*if (i >= MAX_SRV_CLIENTS) {
               //no free/disconnected spot so reject
               telnetserver.available().stop();
-              Serial.println("### Telnet rejected connection (max Clients)");
+              DebugSerial.println("### Telnet rejected connection (max Clients)");
             }*/
           }
 #ifdef userawserver
@@ -1109,9 +1127,9 @@ void handle_telnet() {
               if (!rawclient || !rawclient.connected()){
                 if(rawclient) rawclient.stop();
                 rawclient = rawserver.available();
-                if (!rawclient) Serial.println("available broken");
-                Serial.print("### Telnet RAW New client: ");
-                Serial.println(rawclient.remoteIP());
+                if (!rawclient) DebugSerial.println("available broken");
+                DebugSerial.print("### Telnet RAW New client: ");
+                DebugSerial.println(rawclient.remoteIP());
                 telnetstate = telnetclientconnected;
                 ledontime=250; ledofftime=250; ledcurrenttime = millis();
                 //telnetnextrefreshtimestamp=millis()+telnetrefreshanyscreen;
@@ -1127,9 +1145,9 @@ void handle_telnet() {
               if (!packetclient || !packetclient.connected()){
                 if(packetclient) packetclient.stop();
                 packetclient = packetserver.available();
-                if (!packetclient) Serial.println("available broken");
-                Serial.print("### Telnet PACKET New client: ");
-                Serial.println(packetclient.remoteIP());
+                if (!packetclient) DebugSerial.println("available broken");
+                DebugSerial.print("### Telnet PACKET New client: ");
+                DebugSerial.println(packetclient.remoteIP());
                 telnetstate = telnetclientconnected;
                 ledontime=250; ledofftime=250; ledcurrenttime = millis();
                 //telnetnextrefreshtimestamp=millis()+telnetrefreshanyscreen;
@@ -1158,7 +1176,7 @@ void handle_telnet() {
         if (!hc) {
           //no more clients, restart listening timer....
           telnetstate = telnetturnon;
-          Serial.println("### Telnet lost all clients - restarting telnet");
+          DebugSerial.println("### Telnet lost all clients - restarting telnet");
         } else {
           //still has clients, update telnet stuff
             if (telnetnextrefreshtimestamp<millis()) {
@@ -1172,7 +1190,7 @@ void handle_telnet() {
             if(telnetclient.available()){
               //get data from the telnet client and push it to the UART
               uint8_t tcmd = telnetclient.read();
-              Serial.printf("Telnet Command: %02X\r\n",tcmd);
+              DebugSerial.printf("Telnet Command: %02X\r\n",tcmd);
               switch (tcmd) {
                 case 0x73: telnetscreen=ts_statistics; break; //s
                 case 0x74: telnetscreen=ts_telemetrie; break; //t
@@ -1186,7 +1204,7 @@ void handle_telnet() {
                 case 0x58: telnetscreen=ts_x1_array; break;  //X
                 case 0x72: reset_statistics(); break;  //r
               } //switch
-              //while(serverClients[i].available()) M365Serial.write(serverClients[i].read());
+              //while(serverClients[i].available()) M365DebugSerial.write(serverClients[i].read());
             } //serverclients available
           } //if connected
         //}  //for i
@@ -1195,27 +1213,25 @@ void handle_telnet() {
 #endif        
       break;
     case telnetdisconnectclients:
-        //for(i = 0; i < MAX_SRV_CLIENTS; i++) {
-          if (telnetclient) telnetclient.stop();
-        //}
-#ifdef userawserver
-        if (rawclient) rawclient.stop();
-#endif        
-#ifdef usepacketserver
-        if (packetclient) packetclient.stop();
-#endif
-
+        if (telnetclient) telnetclient.stop();
+        #ifdef userawserver
+          if (rawclient) rawclient.stop();
+        #endif        
+        #ifdef userawserver
+          if (packetclient) packetclient.stop();
+        #endif
         telnetstate = telnetturnoff;
       break;
     case telnetturnoff:
-        telnetserver.end();
-#ifdef userawserver
-        rawserver.end();
-#endif      
-#ifdef usepacketserver
-        packetserver.end();
-#endif
-
+        #ifdef ESP32
+          telnetserver.end();
+        #endif
+        #if defined userawserver && defined ESP32
+          rawserver.end();
+        #endif      
+        #if defined usepacketserver && defined ESP32
+          packetserver.end();
+        #endif
         wlanstate=wlanturnoff; 
         telnetstate = telnetoff;
       break;
@@ -1224,36 +1240,50 @@ void handle_telnet() {
 } //handle_telnet
 #endif //usetelnetserver
 
+#ifdef ESP32
 void WiFiEvent(WiFiEvent_t event) {
-    //Serial.printf("[WiFi-event] event: %d\n", event);
+    //DebugSerial.printf("[WiFi-event] event: %d\n", event);
     switch(event) {
-      case SYSTEM_EVENT_WIFI_READY: Serial.println("### WifiEvent: SYSTEM_EVENT_WIFI_READY"); break; // < ESP32 WiFi ready
-      case SYSTEM_EVENT_SCAN_DONE: Serial.println("### WifiEvent: SYSTEM_EVENT_SCAN_DONE"); break; // < ESP32 finish scanning AP
-      case SYSTEM_EVENT_STA_START: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_START"); break; // < ESP32 station start
-      case SYSTEM_EVENT_STA_STOP: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_STOP"); break; // < ESP32 station stop
-      case SYSTEM_EVENT_STA_CONNECTED: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_CONNECTED"); break; // < ESP32 station connected to AP
-      case SYSTEM_EVENT_STA_DISCONNECTED: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_DISCONNECTED"); break; // < ESP32 station disconnected from AP
-      case SYSTEM_EVENT_STA_AUTHMODE_CHANGE: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_AUTHMODE_CHANGE"); break; // < the auth mode of AP connected by ESP32 station changed
-      case SYSTEM_EVENT_STA_GOT_IP: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_GOT_IP"); break; // < ESP32 station got IP from connected AP
-      case SYSTEM_EVENT_STA_LOST_IP: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_LOST_IP"); break; // < ESP32 station lost IP and the IP is reset to 0
-      case SYSTEM_EVENT_STA_WPS_ER_SUCCESS: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_SUCCESS"); break; // < ESP32 station wps succeeds in enrollee mode
-      case SYSTEM_EVENT_STA_WPS_ER_FAILED: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_FAILED"); break; // < ESP32 station wps fails in enrollee mode
-      case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_TIMEOUT"); break; // < ESP32 station wps timeout in enrollee mode
-      case SYSTEM_EVENT_STA_WPS_ER_PIN: Serial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_PIN"); break; // < ESP32 station wps pin code in enrollee mode
-      case SYSTEM_EVENT_AP_START: Serial.println("### WifiEvent: SYSTEM_EVENT_AP_START"); break; // < ESP32 soft-AP start
-      case SYSTEM_EVENT_AP_STOP: Serial.println("### WifiEvent: SYSTEM_EVENT_AP_STOP"); break; // < ESP32 soft-AP stop
-      case SYSTEM_EVENT_AP_STACONNECTED: apnumclientsconnected++; Serial.println("### WifiEvent: SYSTEM_EVENT_AP_STACONNECTED"); break; // < a station connected to ESP32 soft-AP
-      case SYSTEM_EVENT_AP_STADISCONNECTED: apnumclientsconnected--; Serial.println("### WifiEvent: SYSTEM_EVENT_AP_STADISCONNECTED"); break; // < a station disconnected from ESP32 soft-AP
-      case SYSTEM_EVENT_AP_PROBEREQRECVED: Serial.println("### WifiEvent: SYSTEM_EVENT_AP_PROBEREQRECVED"); break; // < Receive probe request packet in soft-AP interface
-      case SYSTEM_EVENT_GOT_IP6: Serial.println("### WifiEvent: SYSTEM_EVENT_GOT_IP6"); break; // < ESP32 station or ap or ethernet interface v6IP addr is preferred
-      case SYSTEM_EVENT_ETH_START: Serial.println("### WifiEvent: SYSTEM_EVENT_ETH_START"); break; // < ESP32 ethernet start
-      case SYSTEM_EVENT_ETH_STOP: Serial.println("### WifiEvent: SYSTEM_EVENT_ETH_STOP"); break; // < ESP32 ethernet stop
-      case SYSTEM_EVENT_ETH_CONNECTED: Serial.println("### WifiEvent: SYSTEM_EVENT_ETH_CONNECTED"); break; // < ESP32 ethernet phy link up
-      case SYSTEM_EVENT_ETH_DISCONNECTED: Serial.println("### WifiEvent: SYSTEM_EVENT_ETH_DISCONNECTED"); break; // < ESP32 ethernet phy link down
-      case SYSTEM_EVENT_ETH_GOT_IP: Serial.println("### WifiEvent: SYSTEM_EVENT_ETH_GOT_IP"); break; // < ESP32 ethernet got IP from connected AP
-      case SYSTEM_EVENT_MAX: Serial.println("### WifiEvent: SYSTEM_EVENT_MAX"); break; //
+      case SYSTEM_EVENT_WIFI_READY: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_WIFI_READY"); break; // < ESP32 WiFi ready
+      case SYSTEM_EVENT_SCAN_DONE: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_SCAN_DONE"); break; // < ESP32 finish scanning AP
+      case SYSTEM_EVENT_STA_START: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_START"); break; // < ESP32 station start
+      case SYSTEM_EVENT_STA_STOP: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_STOP"); break; // < ESP32 station stop
+      case SYSTEM_EVENT_STA_CONNECTED: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_CONNECTED"); break; // < ESP32 station connected to AP
+      case SYSTEM_EVENT_STA_DISCONNECTED: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_DISCONNECTED"); break; // < ESP32 station disconnected from AP
+      case SYSTEM_EVENT_STA_AUTHMODE_CHANGE: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_AUTHMODE_CHANGE"); break; // < the auth mode of AP connected by ESP32 station changed
+      case SYSTEM_EVENT_STA_GOT_IP: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_GOT_IP"); break; // < ESP32 station got IP from connected AP
+      case SYSTEM_EVENT_STA_LOST_IP: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_LOST_IP"); break; // < ESP32 station lost IP and the IP is reset to 0
+      case SYSTEM_EVENT_STA_WPS_ER_SUCCESS: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_SUCCESS"); break; // < ESP32 station wps succeeds in enrollee mode
+      case SYSTEM_EVENT_STA_WPS_ER_FAILED: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_FAILED"); break; // < ESP32 station wps fails in enrollee mode
+      case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_TIMEOUT"); break; // < ESP32 station wps timeout in enrollee mode
+      case SYSTEM_EVENT_STA_WPS_ER_PIN: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_STA_WPS_ER_PIN"); break; // < ESP32 station wps pin code in enrollee mode
+      case SYSTEM_EVENT_AP_START: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_AP_START"); break; // < ESP32 soft-AP start
+      case SYSTEM_EVENT_AP_STOP: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_AP_STOP"); break; // < ESP32 soft-AP stop
+      case SYSTEM_EVENT_AP_STACONNECTED: apnumclientsconnected++; DebugSerial.println("### WifiEvent: SYSTEM_EVENT_AP_STACONNECTED"); break; // < a station connected to ESP32 soft-AP
+      case SYSTEM_EVENT_AP_STADISCONNECTED: apnumclientsconnected--; DebugSerial.println("### WifiEvent: SYSTEM_EVENT_AP_STADISCONNECTED"); break; // < a station disconnected from ESP32 soft-AP
+      case SYSTEM_EVENT_AP_PROBEREQRECVED: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_AP_PROBEREQRECVED"); break; // < Receive probe request packet in soft-AP interface
+      case SYSTEM_EVENT_GOT_IP6: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_GOT_IP6"); break; // < ESP32 station or ap or ethernet interface v6IP addr is preferred
+      case SYSTEM_EVENT_ETH_START: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_ETH_START"); break; // < ESP32 ethernet start
+      case SYSTEM_EVENT_ETH_STOP: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_ETH_STOP"); break; // < ESP32 ethernet stop
+      case SYSTEM_EVENT_ETH_CONNECTED: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_ETH_CONNECTED"); break; // < ESP32 ethernet phy link up
+      case SYSTEM_EVENT_ETH_DISCONNECTED: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_ETH_DISCONNECTED"); break; // < ESP32 ethernet phy link down
+      case SYSTEM_EVENT_ETH_GOT_IP: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_ETH_GOT_IP"); break; // < ESP32 ethernet got IP from connected AP
+      case SYSTEM_EVENT_MAX: DebugSerial.println("### WifiEvent: SYSTEM_EVENT_MAX"); break; //
     }
 } //WiFiEvent
+#endif
+
+#ifdef ESP8266
+void onStationConnected(const WiFiEventSoftAPModeStationConnected& evt) {
+  DebugSerial.println("### WifiEvent: Station connected");
+  apnumclientsconnected++;
+}
+
+void onStationDisconnected(const WiFiEventSoftAPModeStationDisconnected& evt) {
+  DebugSerial.println("### WifiEvent: Station disconnected");
+  apnumclientsconnected--;
+}
+#endif
 
 void handle_wlan() {
   switch(wlanstate) {
@@ -1268,11 +1298,17 @@ void handle_wlan() {
         yield();
         apnumclientsconnected=0;
         apnumclientsconnectedlast=0;
-        WiFi.onEvent(WiFiEvent);
+        #ifdef ESP32
+          WiFi.onEvent(WiFiEvent);
+        #endif
+        #ifdef ESP8266
+          stationConnectedHandler = WiFi.onSoftAPModeStationConnected(&onStationConnected);
+          stationDisconnectedHandler = WiFi.onSoftAPModeStationDisconnected(&onStationDisconnected);
+        #endif
         WiFi.softAP(apssid, appassword);
         yield();
         //IPAddress myIP = WiFi.softAPIP();
-        Serial.printf("### WLAN AP\r\nSSID: %s, AP IP address: ", apssid);  Serial.println( WiFi.softAPIP());
+        DebugSerial.printf("### WLAN AP\r\nSSID: %s, AP IP address: ", apssid);  DebugSerial.println( WiFi.softAPIP());
 #ifdef useoledxxx //POPUP
         display1.clearDisplay();
         display1.setFont();
@@ -1291,16 +1327,23 @@ void handle_wlan() {
         //start OTA
       break;
     case wlanturnstaon:
-        Serial.println("### Searching for known wlan");
+        DebugSerial.println("### Searching for known wlan");
         WiFi.persistent(false);
         WiFi.mode(WIFI_STA);
         #ifdef staticip
           if (!WiFi.config(ip, gateway, subnet, dns)) {
-            Serial.println("### STA Failed to configure");
+            DebugSerial.println("### STA Failed to configure");
           }
         #endif
         currentssidindex = 0;
-        WiFi.onEvent(WiFiEvent);
+        #ifdef ESP32
+          WiFi.onEvent(WiFiEvent); //not really needed in STA mode
+          WiFi.setHostname("M365OLEDESP32");
+        #endif
+        #ifdef ESP8266
+          WiFi.hostname("M365OLEDESP8266");
+        #endif
+
         WiFi.begin(ssid1, password1);
         wlanconnecttimestamp = millis()+wlanconnecttimeout;
 #ifdef useoledxxx //POPUP
@@ -1309,7 +1352,7 @@ void handle_wlan() {
         display1.printf("W %d",currentssidindex);
         display1.display();  
 #endif        
-        Serial.printf("###  WLan searching for ssidindex %d\r\n",currentssidindex);
+        DebugSerial.printf("###  WLan searching for ssidindex %d\r\n",currentssidindex);
         wlanstate = wlansearching;
         ledontime=50; ledofftime=450; ledcurrenttime = millis();
         //start wlan connect timeout
@@ -1329,18 +1372,18 @@ void handle_wlan() {
               display1.printf("W %d",currentssidindex);
               display1.display();
 #endif              
-              Serial.printf("### WLan searching for ssidindex %d\r\n",currentssidindex);
+              DebugSerial.printf("### WLan searching for ssidindex %d\r\n",currentssidindex);
             } else {
-              Serial.println("### WLAN search failed, starting Access Point");
+              DebugSerial.println("### WLAN search failed, starting Access Point");
               wlanstate = wlanturnapon;
             }
           }
         } else {
           wlanstate = wlanconnected;
-          Serial.print("### WLAN Connected to ");
-          Serial.print(WiFi.SSID());
-          Serial.print(", IP is ");
-          Serial.println(WiFi.localIP());
+          DebugSerial.print("### WLAN Connected to ");
+          DebugSerial.print(WiFi.SSID());
+          DebugSerial.print(", IP is ");
+          DebugSerial.println(WiFi.localIP());
 #ifdef useoledxxx //POPUP
           display1.clearDisplay();
           display1.setFont();
@@ -1360,7 +1403,7 @@ void handle_wlan() {
       break;
     case wlanconnected:
           if (WiFi.status() != WL_CONNECTED) {
-              Serial.println("### WiFi lost connection!");
+              DebugSerial.println("### WiFi lost connection!");
 #ifdef useoledxxx //POPUP
               display1.clearDisplay();
               display1.setFont();
@@ -1381,7 +1424,7 @@ void handle_wlan() {
         if (apnumclientsconnected!=apnumclientsconnectedlast) {
           //num of connect clients changed
           apnumclientsconnectedlast = apnumclientsconnected;
-          Serial.printf("### AP Clients connected changed: %d -> %d\r\n",apnumclientsconnectedlast, apnumclientsconnected);
+          DebugSerial.printf("### AP Clients connected changed: %d -> %d\r\n",apnumclientsconnectedlast, apnumclientsconnected);
 #ifdef useoledxxx //POPUP
           display1.clearDisplay();
           display1.setFont();
@@ -1417,11 +1460,13 @@ void handle_wlan() {
 #endif
 
 
-        ArduinoOTA.end();
+        #ifdef ESP32
+          ArduinoOTA.end();
+        #endif
         WiFi.softAPdisconnect();
         WiFi.disconnect();
         WiFi.mode(WIFI_OFF);
-        Serial.println("### WIFI OFF");
+        DebugSerial.println("### WIFI OFF");
 #ifdef useoledxxx //POPUP
         display1.clearDisplay();
         display1.setFont();
@@ -1438,21 +1483,21 @@ void handle_wlan() {
 #ifdef debug_dump_states //dump state machine states to Serial Port on change
   void print_states() {
     if (wlanstate!=wlanstateold) {
-      Serial.printf("### WLANSTATE %d -> %d\r\n",wlanstateold,wlanstate);
+      DebugSerial.printf("### WLANSTATE %d -> %d\r\n",wlanstateold,wlanstate);
       wlanstateold=wlanstate;
     }
 #ifdef usetelnetserver    
     if (telnetstate!=telnetstateold) {
-      Serial.printf("### TELNETSTATE %d -> %d\r\n",telnetstateold,telnetstate);
+      DebugSerial.printf("### TELNETSTATE %d -> %d\r\n",telnetstateold,telnetstate);
       telnetstateold=telnetstate;
     }
 #endif    
     if (m365receiverstate!=m365receiverstateold) {
-      Serial.printf("### M365RecState: %d -> %d\r\n",m365receiverstateold,m365receiverstate);
+      DebugSerial.printf("### M365RecState: %d -> %d\r\n",m365receiverstateold,m365receiverstate);
       m365receiverstateold=m365receiverstate;
     }
     if (m365packetstate!=m365packetstateold) {
-      Serial.printf("M365PacketState: %d -> %d\r\n",m365packetstateold,m365packetstate);
+      DebugSerial.printf("M365PacketState: %d -> %d\r\n",m365packetstateold,m365packetstate);
       m365packetstateold=m365packetstate;
     }    
   }
@@ -1462,7 +1507,7 @@ void handle_wlan() {
 
 void setup() {
 #ifdef useoled1
-  display1.begin(SSD1306_SWITCHCAPVCC, oled1_address, oled1_sda, oled1_scl, false);
+  display1.begin(SSD1306_SWITCHCAPVCC, oled1_address, oled_sda, oled_scl, false);
   display1.dim(true);
   display1.setTextSize(1);
   display1.setTextColor(WHITE);
@@ -1480,13 +1525,14 @@ void setup() {
   //delay(3000);
 #endif
 #ifdef useoled2
-  display2.begin(SSD1306_SWITCHCAPVCC, oled2_address, oled2_sda, oled2_scl, false);
-  display2.setTextSize(1);
-  display2.setTextColor(WHITE);
-  display2.clearDisplay();
-  display2.setCursor(0,fontsmallbaselinezero);
-  display2.setFont(&fontsmall);
-  display2.println(swversion);
+  display2.begin(SSD1306_SWITCHCAPVCC, oled2_address, oled_sda, oled_scl, false);
+
+  //display2.setTextSize(1);
+  //display2.setTextColor(WHITE);
+  //display2.clearDisplay();
+  //display2.setCursor(0,fontsmallbaselinezero);
+  //display2.setFont(&fontsmall);
+  //display2.println(swversion);
   display2.display();
   //delay(3000);
 #endif
@@ -1504,14 +1550,20 @@ void setup() {
 
   pinMode(led,OUTPUT);
   digitalWrite(led,LOW);
-  Serial.begin(115200);
-  Serial.println(swversion);
+  #ifdef ESP32
+    DebugSerial.begin(115200);
+  #endif
+  #ifdef ESP8266
+    DebugSerial.begin(115200);
+    DebugSerial.setDebugOutput(true);
+  #endif
+  DebugSerial.println(swversion);
   wlanstate=wlanturnstaon;
   uint64_t cit;
   #ifdef ESP32
     cit = ESP.getEfuseMac();
     sprintf(chipid,"%02X%02X%02X",(uint8_t)(cit>>24),(uint8_t)(cit>>32),(uint8_t)(cit>>40));
-    Serial.println(chipid);
+    DebugSerial.println(chipid);
     sprintf(mac,"%02X%02X%02X%02X%02X%02X",(uint8_t)(cit),(uint8_t)(cit>>8),(uint8_t)(cit>>16),(uint8_t)(cit>>24),(uint8_t)(cit>>32),(uint8_t)(cit>>40));
   #elif defined(ESP8266)
     cit = ESP.getChipId();
@@ -1522,7 +1574,7 @@ void setup() {
   #endif
   start_m365();
   ArduinoOTA.onStart([]() {
-    Serial.println("OTA Start");
+    DebugSerial.println("OTA Start");
 #ifdef usemqtt
     if (client.connected()) {
       sprintf(tmp1, "n/%d/OTAStart", mqtt_clientID);
@@ -1548,7 +1600,7 @@ void setup() {
 #endif
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nOTA End");
+    DebugSerial.println("\nOTA End");
 #ifdef usemqtt
     if (client.connected()) {
       sprintf(tmp1, "n/%d/OTAEND", mqtt_clientID);
@@ -1567,7 +1619,7 @@ void setup() {
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("OTA %02u%%\r", (progress / (total / 100)));
+    DebugSerial.printf("OTA %02u%%\r", (progress / (total / 100)));
 #ifdef useoled1
     if ((progress / (total / 100))>lastprogress) {
       lastprogress = progress / (total / 100);
@@ -1593,7 +1645,7 @@ void setup() {
     else if (error == OTA_RECEIVE_ERROR) sprintf(tmp1,"%s","Receive Failed");
     else if (error == OTA_END_ERROR) sprintf(tmp1,"%s","End Failed");
     sprintf(tmp2, "OTA Error [%u]: %s", error, tmp1);
-    Serial.println(tmp2);
+    DebugSerial.println(tmp2);
 #ifdef usemqtt
     if (client.connected()) {
       sprintf(tmp1, "n/%d/OTAError", mqtt_clientID);
@@ -1716,7 +1768,7 @@ void oled_switchscreens() {
 
   //update subscriptions if screen has been changed
     if (oldscreen!=oledstate) { 
-      //Serial.printf("---OLEDSTATE: %d\r\n",oledstate);
+      //DebugSerial.printf("---OLEDSTATE: %d\r\n",oledstate);
       subscribedrequests=rqsarray[oledstate];
     }
   //reset newdata flag if we consumed it
@@ -2063,7 +2115,7 @@ void handle_oled() {
     #ifdef useloed2
       oled2_update();
     #endif
-    //Serial.printf("---OLED----- %02d %d\r\n",oledstate, millis());
+    //DebugSerial.printf("---OLED----- %02d %d\r\n",oledstate, millis());
     updatescreens=false;
   }
   duration_oled = micros()-timestamp_oledstart;
