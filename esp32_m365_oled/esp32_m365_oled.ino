@@ -5,6 +5,8 @@ references used:
   Paco Gorina NinebotMetrics: http://www.gorina.es/9BMetrics/
 */
 
+//current version working on esp32 & esp8266
+
 #ifdef ESP32
   #include <WiFi.h>
   #include <WiFiUdp.h>
