@@ -2,6 +2,7 @@
 Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressif ESP32 / ESP8266:
 - Cheap 128x64 pix OLED SSD1306 based
 - ESP32/Arduino Code
+- ESP8266/Arduino works as well, right now no ESP32-specific features are used (might come later)
 - OTA for Firmwareupdates
 - Telnet Screens for debugging
 - Oled Display with different Screens in Drive/Charge/Stop Mode
@@ -29,11 +30,10 @@ Sample Project for decoding serial bus data on a Xiaomi M365 Scooter on Espressi
 - added charge subscreen with cell voltages
 - Telnet on Port 36525 with packet decode/dump from M365 Bus ("read only")
 - compiles on ESP8266, UART/Statemachines/OLED untestet on this plattform
-
+- verified function on ESP8266
 
 # Todos
  - fix - data-requestor timing currently causes ~10% crc errors on m365 bus
- - Test on ESP8266
  - OLED: Add Popup Messages for Events (e.g. Scooter Error, Temp, BMS CellVoltage variations > treshold, WLAN/BLE On/Off, Client Connected,...)
  - Add Menu/Change functionality for "Config" Screen Items
  - Add Background housekeeper task 
